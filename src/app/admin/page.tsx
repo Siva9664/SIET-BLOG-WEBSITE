@@ -56,11 +56,13 @@ export default async function AdminDashboardPage() {
     dashboardData = FALLBACK_DASHBOARD;
   }
 
+  const counts = dashboardData?.counts ?? FALLBACK_DASHBOARD.counts;
+
   const stats = [
-    { label: "News Updates", count: dashboardData.counts.news },
-    { label: "Research Articles", count: dashboardData.counts.articles },
-    { label: "Magazine Wins", count: dashboardData.counts.achievements },
-    { label: "Active Editors", count: dashboardData.counts.users },
+    { label: "News Updates", count: counts?.news ?? 0 },
+    { label: "Research Articles", count: counts?.articles ?? 0 },
+    { label: "Magazine Wins", count: counts?.achievements ?? 0 },
+    { label: "Active Editors", count: counts?.users ?? 0 },
   ];
 
   return (
@@ -105,7 +107,7 @@ export default async function AdminDashboardPage() {
         </div>
 
         <div className="border border-line divide-y divide-line bg-paper">
-          {dashboardData.recentActivity.length > 0 ? (
+          {(dashboardData?.recentActivity?.length ?? 0) > 0 ? (
             dashboardData.recentActivity.map((act) => (
               <div
                 key={act.id}

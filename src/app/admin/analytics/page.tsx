@@ -40,10 +40,12 @@ export default function AdminAnalyticsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const counts = dashboardData?.counts ?? FALLBACK_DASHBOARD.counts;
+
   const totalPublications =
-    dashboardData.counts.news +
-    dashboardData.counts.articles +
-    dashboardData.counts.achievements;
+    (counts?.news ?? 0) +
+    (counts?.articles ?? 0) +
+    (counts?.achievements ?? 0);
 
   // Max value for bar scaling
   const maxDomainCount = Math.max(...domains.map((d) => d.count), 1);
@@ -91,7 +93,7 @@ export default function AdminAnalyticsPage() {
             Registered Writers
           </p>
           <p className="font-util text-h1 text-accent mt-2 font-medium">
-            {dashboardData.counts.users}
+            {counts?.users ?? 0}
           </p>
           <p className="text-[10px] text-ink-soft font-util uppercase tracking-widest mt-3">
             Active editor & admin profiles
@@ -129,13 +131,13 @@ export default function AdminAnalyticsPage() {
             <div className="space-y-1">
               <div className="flex justify-between text-xs font-util uppercase tracking-wider">
                 <span className="text-ink">News & Releases</span>
-                <span className="text-ink-soft">{dashboardData.counts.news} items</span>
+                <span className="text-ink-soft">{counts?.news ?? 0} items</span>
               </div>
               <div className="w-full bg-paper-2 border border-line h-6">
                 <div
                   className="bg-accent h-full transition-all duration-500"
                   style={{
-                    width: `${totalPublications > 0 ? (dashboardData.counts.news / totalPublications) * 100 : 0}%`,
+                    width: `${totalPublications > 0 ? ((counts?.news ?? 0) / totalPublications) * 100 : 0}%`,
                   }}
                 />
               </div>
@@ -145,13 +147,13 @@ export default function AdminAnalyticsPage() {
             <div className="space-y-1">
               <div className="flex justify-between text-xs font-util uppercase tracking-wider">
                 <span className="text-ink">Research Articles</span>
-                <span className="text-ink-soft">{dashboardData.counts.articles} items</span>
+                <span className="text-ink-soft">{counts?.articles ?? 0} items</span>
               </div>
               <div className="w-full bg-paper-2 border border-line h-6">
                 <div
                   className="bg-accent h-full transition-all duration-500"
                   style={{
-                    width: `${totalPublications > 0 ? (dashboardData.counts.articles / totalPublications) * 100 : 0}%`,
+                    width: `${totalPublications > 0 ? ((counts?.articles ?? 0) / totalPublications) * 100 : 0}%`,
                   }}
                 />
               </div>
@@ -161,13 +163,13 @@ export default function AdminAnalyticsPage() {
             <div className="space-y-1">
               <div className="flex justify-between text-xs font-util uppercase tracking-wider">
                 <span className="text-ink">Magazine Wins</span>
-                <span className="text-ink-soft">{dashboardData.counts.achievements} items</span>
+                <span className="text-ink-soft">{counts?.achievements ?? 0} items</span>
               </div>
               <div className="w-full bg-paper-2 border border-line h-6">
                 <div
                   className="bg-accent h-full transition-all duration-500"
                   style={{
-                    width: `${totalPublications > 0 ? (dashboardData.counts.achievements / totalPublications) * 100 : 0}%`,
+                    width: `${totalPublications > 0 ? ((counts?.achievements ?? 0) / totalPublications) * 100 : 0}%`,
                   }}
                 />
               </div>

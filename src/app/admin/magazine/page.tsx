@@ -122,12 +122,12 @@ export default function AdminMagazineCRUDPage() {
     setTitle(item.title);
     setSlug(item.slug);
     setDescription(item.description || "");
-    setStudentName(item.student.name);
-    setStudentAvatar(item.student.avatar || "");
-    setDepartment(item.department);
+    setStudentName(item.student?.name || "");
+    setStudentAvatar(item.student?.avatar || "");
+    setDepartment(item.department || "");
     setYear(item.year || 2026);
-    setType(item.type);
-    setDomainSlug(item.domain.slug);
+    setType(item.type || "Hackathon");
+    setDomainSlug(item.domain?.slug || domains[0]?.slug || "");
     setGalleryCsv(item.gallery?.join(", ") || "");
     setCertificateUrl(item.certificateUrl || "");
     setProjectLinksJson(JSON.stringify(item.projectLinks || [], null, 2));
@@ -268,7 +268,7 @@ export default function AdminMagazineCRUDPage() {
                   <td className="p-4 font-display font-medium text-ink max-w-sm truncate">
                     {item.title}
                   </td>
-                  <td className="p-4 font-display text-ink-soft">{item.student.name}</td>
+                  <td className="p-4 font-display text-ink-soft">{item.student?.name ?? "Student Researcher"}</td>
                   <td className="p-4 font-util text-ink-soft">{item.type}</td>
                   <td className="p-4 font-sans text-ink-soft">{item.year}</td>
                   <td className="p-4 text-right space-x-3">

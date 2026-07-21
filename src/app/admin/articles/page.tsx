@@ -124,11 +124,11 @@ export default function AdminArticlesCRUDPage() {
     setSlug(item.slug);
     setExcerpt(item.excerpt || "");
     setBody(item.body || "");
-    setAuthorName(item.author.name);
-    setAuthorRole(item.author.role || "");
-    setAuthorDept(item.author.department || "");
-    setAuthorAvatar(item.author.avatar || "");
-    setDomainSlug(item.domain.slug);
+    setAuthorName(item.author?.name || "");
+    setAuthorRole(item.author?.role || "");
+    setAuthorDept(item.author?.department || "");
+    setAuthorAvatar(item.author?.avatar || "");
+    setDomainSlug(item.domain?.slug || domains[0]?.slug || "");
     setCover(item.cover || "");
     setTagsCsv(item.tags?.map((t) => t.name).join(", ") || "");
     setPublishedAt(new Date(item.publishedAt).toISOString().substring(0, 16));
@@ -263,8 +263,8 @@ export default function AdminArticlesCRUDPage() {
                   <td className="p-4 font-display font-medium text-ink max-w-sm truncate">
                     {item.title}
                   </td>
-                  <td className="p-4 font-display text-ink-soft">{item.author.name}</td>
-                  <td className="p-4 font-util text-ink-soft">{item.domain.name}</td>
+                  <td className="p-4 font-display text-ink-soft">{item.author?.name ?? "Editorial Staff"}</td>
+                  <td className="p-4 font-util text-ink-soft">{item.domain?.name ?? "General"}</td>
                   <td className="p-4 font-sans text-ink-soft">
                     {item.readingMinutes} min
                   </td>

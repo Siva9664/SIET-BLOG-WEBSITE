@@ -120,7 +120,7 @@ export default function AdminNewsCRUDPage() {
     setAiSummary(item.aiSummary || "");
     setSourceName(item.sourceName || "");
     setSourceUrl(item.sourceUrl || "");
-    setDomainSlug(item.domain.slug);
+    setDomainSlug(item.domain?.slug || domains[0]?.slug || "");
     setImage(item.image || "");
     setPublishedAt(new Date(item.publishedAt).toISOString().substring(0, 16));
     setTrending(!!item.trending);
@@ -238,7 +238,7 @@ export default function AdminNewsCRUDPage() {
                   <td className="p-4 font-display font-medium text-ink max-w-sm truncate">
                     {item.title}
                   </td>
-                  <td className="p-4 font-util text-ink-soft">{item.domain.name}</td>
+                  <td className="p-4 font-util text-ink-soft">{item.domain?.name ?? "General"}</td>
                   <td className="p-4 font-sans text-ink-soft">
                     {new Date(item.publishedAt).toLocaleDateString()}
                   </td>
