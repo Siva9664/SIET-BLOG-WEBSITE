@@ -32,7 +32,7 @@ export default function ReaderLoginPage() {
       }
       
       // Check user role to determine routing destination
-      if (user && (user.role === "admin" || user.role === "editor")) {
+      if (user && user.role === "admin") {
         router.push("/admin");
       } else {
         router.push("/");

@@ -18,7 +18,7 @@ const MOCK_USER: User = {
   id: "u-mock-reader",
   name: "Dr. Babus",
   email: "reader@siet.edu",
-  role: "reader"
+  role: "user"
 };
 
 const MOCK_LIKES: GroupedData = {
@@ -123,8 +123,8 @@ function ProfileContent() {
         const u = await api.getCurrentUser();
         if (!active) return;
         
-        // If the user is not a reader, redirect to login
-        if (!u || u.role !== "reader") {
+        // If the user is not a user, redirect to login
+        if (!u || u.role !== "user") {
           router.push("/login");
           return;
         }
@@ -164,7 +164,7 @@ function ProfileContent() {
         // NEVER gate real data or be treated as authoritative — they only unlock the
         // offline MOCK_LIKES/MOCK_BOOKMARKS demo fallback when the backend is unreachable.
         // Do not extend this pattern to admin checks or real user data anywhere else.
-        if (!hasSessionFlag || sessionRole !== "reader") {
+        if (!hasSessionFlag || sessionRole !== "user") {
           router.push("/login");
           return;
         }

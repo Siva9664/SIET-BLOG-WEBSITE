@@ -18,7 +18,7 @@ export function LikeButton({ type, slug, count, liked = false }: LikeButtonProps
 
   useEffect(() => {
     api.getCurrentUser().then((user) => {
-      if (!user || user.role !== "reader") return;
+      if (!user || user.role !== "user") return;
 
       api.likeStatus(type, slug)
         .then((status) => {
@@ -33,7 +33,7 @@ export function LikeButton({ type, slug, count, liked = false }: LikeButtonProps
 
   const handleClick = async () => {
     const user = await api.getCurrentUser();
-    if (!user || user.role !== "reader") {
+    if (!user || user.role !== "user") {
       window.location.href = "/login";
       return;
     }
@@ -81,7 +81,7 @@ export function BookmarkButton({ type, slug, bookmarked = false }: BookmarkButto
 
   useEffect(() => {
     api.getCurrentUser().then((user) => {
-      if (!user || user.role !== "reader") return;
+      if (!user || user.role !== "user") return;
 
       api.bookmarkStatus(type, slug)
         .then((status) => {
@@ -95,7 +95,7 @@ export function BookmarkButton({ type, slug, bookmarked = false }: BookmarkButto
 
   const handleClick = async () => {
     const user = await api.getCurrentUser();
-    if (!user || user.role !== "reader") {
+    if (!user || user.role !== "user") {
       window.location.href = "/login";
       return;
     }

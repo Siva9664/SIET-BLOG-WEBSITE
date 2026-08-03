@@ -86,7 +86,7 @@ def domain_payload(domain: Domain | None) -> dict[str, Any]:
 
 def user_payload(user: User | None) -> dict[str, Any]:
     if not user:
-        return {"id": "0", "name": "SIET Editorial Desk", "role": "editor"}
+        return {"id": "0", "name": "SIET Editorial Desk", "role": "user"}
     return {
         "id": str(user.id),
         "name": user.name,
