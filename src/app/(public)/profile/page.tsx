@@ -18,7 +18,7 @@ const MOCK_USER: User = {
   id: "u-mock-reader",
   name: "Dr. Babus",
   email: "reader@siet.edu",
-  role: "reader"
+  role: "user"
 };
 
 const MOCK_LIKES: GroupedData = {
@@ -108,6 +108,8 @@ function ProfileContent() {
   const [bookmarks, setBookmarks] = useState<GroupedData>({ news: [], articles: [], magazine: [] });
   const [loading, setLoading] = useState(true);
 
+  const [isFallback, setIsFallback] = useState(false);
+
   const tab = searchParams.get("tab") === "bookmarks" ? "bookmarks" : "likes";
   const pageParam = searchParams.get("page");
   const currentPage = pageParam ? parseInt(pageParam, 10) : 1;
@@ -121,8 +123,8 @@ function ProfileContent() {
         const u = await api.getCurrentUser();
         if (!active) return;
         
-        // If the user is not a reader, redirect to login
-        if (!u || u.role !== "reader") {
+        // If the user is not a user, redirect to login
+        if (!u || u.role !== "user") {
           router.push("/login");
           return;
         }
@@ -144,6 +146,7 @@ function ProfileContent() {
         setLoading(false);
       } catch (err: any) {
         console.warn("Profile API offline or unauthorized. Checking offline session flags.", err);
+        setIsFallback(true);
         if (!active) return;
 
         // If it's a 401 Unauthorized or a network failure but no login flag is present, redirect to login
@@ -161,7 +164,7 @@ function ProfileContent() {
         // NEVER gate real data or be treated as authoritative — they only unlock the
         // offline MOCK_LIKES/MOCK_BOOKMARKS demo fallback when the backend is unreachable.
         // Do not extend this pattern to admin checks or real user data anywhere else.
-        if (!hasSessionFlag || sessionRole !== "reader") {
+        if (!hasSessionFlag || sessionRole !== "user") {
           router.push("/login");
           return;
         }
@@ -215,6 +218,11 @@ function ProfileContent() {
 
   return (
     <main className="kitchen-page">
+      {isFallback && (
+        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
+          ⚠ Showing sample content — live data unavailable
+        </div>
+      )}
       {/* Header */}
       <header className="space-y-4">
         <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Reader Profile" }]} />

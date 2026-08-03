@@ -8,7 +8,7 @@ import type { User } from "@/lib/types";
 // Fallbacks
 const FALLBACK_USERS: User[] = [
   { id: "u1", name: "Srikumar B.", email: "editor@example.com", role: "admin" },
-  { id: "u2", name: "Jane Doe", email: "jane@example.com", role: "editor" },
+  { id: "u2", name: "Jane Doe", email: "jane@example.com", role: "user" },
 ];
 
 export default function AdminUsersCRUDPage() {
@@ -25,7 +25,7 @@ export default function AdminUsersCRUDPage() {
   // Form Fields
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"admin" | "editor">("editor");
+  const [role, setRole] = useState<"admin" | "user">("admin");
   const [password, setPassword] = useState("");
 
   // Delete Confirm ID
@@ -57,7 +57,7 @@ export default function AdminUsersCRUDPage() {
     setEditItem(null);
     setName("");
     setEmail("");
-    setRole("editor");
+    setRole("admin");
     setPassword("");
     setFormError(null);
     setIsDrawerOpen(true);
@@ -298,10 +298,9 @@ export default function AdminUsersCRUDPage() {
             </label>
             <select
               value={role}
-              onChange={(e) => setRole(e.target.value as "admin" | "editor")}
+              onChange={(e) => setRole(e.target.value as "admin" | "user")}
               className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-util uppercase tracking-wider"
             >
-              <option value="editor">Editor</option>
               <option value="admin">Administrator</option>
             </select>
           </div>

@@ -1,20 +1,21 @@
 from enum import Enum
-from typing import List, Union, Optional
+from typing import Annotated, Literal
+
 from pydantic import BeforeValidator, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing_extensions import Annotated
+
 
 class Environment(str, Enum):
     development = "development"
     testing = "testing"
     production = "production"
 
-def parse_cors_origins(v: Union[str, List[str]]) -> List[str]:
+def parse_cors_origins(v: str | list[str]) -> list[str]:
     if isinstance(v, str):
         if v.startswith("[") and v.endswith("]"):
             import json
             try:
-                return json.loads(v)
+                return list(json.loads(v))
             except Exception:
                 pass
         return [i.strip() for i in v.split(",") if i.strip()]
@@ -60,15 +61,29 @@ class Settings(BaseSettings):
     R2_BUCKET_NAME: str = ""
 
     INTERNAL_API_KEY: SecretStr = SecretStr("internal-api-key-secret")
+    CONTACT_RECEIVER_EMAIL: str = "ai.lab@siet.ac.in"
+
+    RSS_FEEDS: list[dict[str, str]] = [
+        {
+            "feed_url": "https://news.google.com/rss/search?q=machine+learning",
+            "domain_slug": "machine-learning",
+            "source_name": "Google News ML",
+        },
+        {
+            "feed_url": "https://news.google.com/rss/search?q=robotics",
+            "domain_slug": "robotics",
+            "source_name": "Google News Robotics",
+        },
+    ]
 
     ALLOWED_ORIGINS: Annotated[
-        Union[List[str], str],
+        list[str] | str,
         BeforeValidator(parse_cors_origins),
     ] = ["http://localhost:3000"]
 
     COOKIE_SECURE: bool = False
-    COOKIE_SAMESITE: str = "lax"
-    COOKIE_DOMAIN: Optional[str] = None
+    COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
+    COOKIE_DOMAIN: str | None = None
     ACCESS_COOKIE_NAME: str = "access_token"
     REFRESH_COOKIE_NAME: str = "refresh_token"
     REQUEST_TIMEOUT: int = 30

@@ -40,7 +40,7 @@ export function Navbar() {
           if (hasSessionFlag && sessionRole) {
             setUser({
               id: `u-mock-${sessionRole}`,
-              name: sessionRole === "reader" ? "Dr. Babus" : "Offline Admin",
+              name: sessionRole === "user" ? "Dr. Babus" : "Offline Admin",
               email: `${sessionRole}@siet.edu`,
               role: sessionRole as any
             });
@@ -185,7 +185,7 @@ export function Navbar() {
                     <>
                       <span className="font-util text-[10px] text-ink-soft uppercase">Hello, {user.name}</span>
                       <span className="separator">·</span>
-                      {user.role === "reader" ? (
+                      {user.role === "user" ? (
                         <Link href="/profile" onClick={() => setOpen(false)}>My Profile</Link>
                       ) : (
                         <Link href="/admin" onClick={() => setOpen(false)}>Admin Console</Link>

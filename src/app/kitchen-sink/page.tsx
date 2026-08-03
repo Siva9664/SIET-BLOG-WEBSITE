@@ -89,6 +89,7 @@ const achievementItem: Achievement = {
     "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=900&q=80",
   ],
   projectLinks: [{ label: "Project page", url: "https://example.com" }],
+  likes: 42,
 };
 
 export default function KitchenSinkPage() {

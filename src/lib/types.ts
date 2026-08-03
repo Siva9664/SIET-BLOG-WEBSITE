@@ -64,9 +64,27 @@ export interface Paginated<T> {
   total: number;
 }
 
+export interface CursorPageInfo {
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+export interface CursorPaginated<T> {
+  items: T[];
+  pageInfo: CursorPageInfo;
+}
+
 export interface User {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "editor" | "reader";
+  role: "admin" | "user";
+}
+
+export interface SiteSettings {
+  site_name: string;
+  credit_line: string;
+  accent_color: string;
+  newsletter_enabled: boolean;
+  featured_domains: string;
 }

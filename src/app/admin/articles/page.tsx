@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { Pagination } from "@/components/shared";
+import { CursorPagination } from "@/components/shared";
 import type { Article, Domain } from "@/lib/types";
 
 // Fallbacks
@@ -44,8 +44,10 @@ const FALLBACK_ARTICLES: Article[] = [
 export default function AdminArticlesCRUDPage() {
   const [items, setItems] = useState<Article[]>([]);
   const [domains, setDomains] = useState<Domain[]>(FALLBACK_DOMAINS);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([null]);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Drawer / Form State
@@ -73,29 +75,48 @@ export default function AdminArticlesCRUDPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Load Data
-  const loadArticles = async (pageNum = 1) => {
+  const loadArticles = async (currentCursor: string | null) => {
     setLoading(true);
     try {
-      const res = await api.adminArticles(`?page=${pageNum}`);
+      const res = await api.adminArticles(currentCursor ? `?cursor=${currentCursor}` : "");
       setItems(res.items);
-      setPage(res.page);
-      setTotalPages(res.pages);
+      setHasMore(res.pageInfo.has_more);
+      setNextCursor(res.pageInfo.next_cursor);
     } catch (err) {
       console.warn("Admin articles API offline, loading static articles mock fallbacks.", err);
       setItems(FALLBACK_ARTICLES);
-      setPage(1);
-      setTotalPages(1);
+      setHasMore(false);
+      setNextCursor(null);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleNext = () => {
+    if (nextCursor) {
+      setCursorHistory((prev) => [...prev, nextCursor]);
+      setCursor(nextCursor);
+    }
+  };
+
+  const handlePrevious = () => {
+    if (cursorHistory.length > 1) {
+      const newHistory = cursorHistory.slice(0, -1);
+      const prevCursor = newHistory[newHistory.length - 1];
+      setCursorHistory(newHistory);
+      setCursor(prevCursor);
+    }
+  };
+
   useEffect(() => {
-    loadArticles(page);
+    loadArticles(cursor);
+  }, [cursor]);
+
+  useEffect(() => {
     api.domains()
       .then(setDomains)
       .catch(() => setDomains(FALLBACK_DOMAINS));
-  }, [page]);
+  }, []);
 
   // Open Drawer for Create
   const handleOpenCreate = () => {
@@ -185,7 +206,7 @@ export default function AdminArticlesCRUDPage() {
         await api.adminArticlesCreate(payload);
       }
       setIsDrawerOpen(false);
-      loadArticles(page);
+      loadArticles(cursor);
     } catch (err) {
       console.error("Save failure:", err);
       // Client-side local fallback update to simulate saves offline
@@ -211,7 +232,7 @@ export default function AdminArticlesCRUDPage() {
   const handleDelete = async (id: string) => {
     try {
       await api.adminArticlesDelete(id);
-      loadArticles(page);
+      loadArticles(cursor);
     } catch (err) {
       console.warn("Delete call failed. Applying offline item removal.", err);
       setItems(items.filter((i) => i.id !== id));
@@ -315,9 +336,14 @@ export default function AdminArticlesCRUDPage() {
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
+      {(hasMore || cursorHistory.length > 1) && (
         <div className="flex justify-center pt-4">
-          <Pagination page={page} pages={totalPages} basePath="/admin/articles" />
+          <CursorPagination
+            hasMore={hasMore}
+            hasPrevious={cursorHistory.length > 1}
+            onNext={handleNext}
+            onPrevious={handlePrevious}
+          />
         </div>
       )}
 

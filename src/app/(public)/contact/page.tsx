@@ -4,6 +4,7 @@ import * as React from "react";
 import { useState } from "react";
 import Link from "next/link";
 import { Breadcrumb } from "@/components/shared";
+import { api } from "@/lib/api";
 
 export default function ContactPage() {
   // Form submission state
@@ -14,20 +15,33 @@ export default function ContactPage() {
     message: "",
   });
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.email || !formData.message) {
       alert("Please fill in all required fields.");
       return;
     }
-    // Simulate submission
-    setSubmitted(true);
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      await api.submitContact(formData);
+      setSubmitted(true);
+    } catch (err: any) {
+      console.error("Failed to submit contact form:", err);
+      setError("Failed to send message. Please try again later or email us directly at ai.lab@siet.ac.in.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleReset = () => {
     setFormData({ name: "", email: "", subject: "", message: "" });
     setSubmitted(false);
+    setError(null);
   };
 
   return (
@@ -115,12 +129,19 @@ export default function ContactPage() {
                 />
               </div>
 
+              {error && (
+                <div className="p-4 bg-red-50 border border-red-200 text-red-700 text-xs font-sans rounded">
+                  {error}
+                </div>
+              )}
+
               {/* Submit Button */}
               <button
                 type="submit"
-                className="font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent hover:border-accent border border-ink transition-colors px-6 py-3 cursor-pointer"
+                disabled={submitting}
+                className="font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent hover:border-accent border border-ink transition-colors px-6 py-3 cursor-pointer disabled:opacity-50"
               >
-                Send Message
+                {submitting ? "Sending..." : "Send Message"}
               </button>
             </form>
           ) : (

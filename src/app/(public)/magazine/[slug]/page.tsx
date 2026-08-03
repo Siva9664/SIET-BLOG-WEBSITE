@@ -137,11 +137,14 @@ export default async function AchievementDetailPage(props: { params: Params }) {
   let item: Achievement;
   let related: Achievement[] = [];
 
+  let isFallback = false;
+
   try {
     item = await api.magBySlug(slug);
   } catch (error) {
     console.warn(`Achievement detail API for slug '${slug}' offline. Loading fallback.`, error);
     item = getFallbackAchievement(slug);
+    isFallback = true;
   }
 
   try {
@@ -149,6 +152,7 @@ export default async function AchievementDetailPage(props: { params: Params }) {
     related = res.items.filter((r) => r.slug !== slug).slice(0, 4);
   } catch (error) {
     console.warn("Related achievements API call failed. Using filtered fallbacks.", error);
+    isFallback = true;
     related = FALLBACK_ACHIEVEMENTS.filter(
       (r) => (r.domain.slug === item.domain.slug || r.type === item.type) && r.slug !== slug,
     ).slice(0, 4);
@@ -159,6 +163,11 @@ export default async function AchievementDetailPage(props: { params: Params }) {
 
   return (
     <main className="kitchen-page">
+      {isFallback && (
+        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
+          ⚠ Showing sample content — live data unavailable
+        </div>
+      )}
       {/* Header & Breadcrumb */}
       <header className="space-y-4">
         <Breadcrumb

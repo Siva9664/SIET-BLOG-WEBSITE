@@ -88,12 +88,15 @@ export default async function NewsPage(props: { searchParams: SearchParams }) {
   let totalPages = 1;
   let isPaginated = true;
 
+  let isFallback = false;
+
   try {
     // Fetch domains for the filter
     domains = await api.domains();
   } catch (error) {
     console.warn("Failed to fetch domains, using fallback.", error);
     domains = FALLBACK_DOMAINS;
+    isFallback = true;
   }
 
   try {
@@ -117,6 +120,7 @@ export default async function NewsPage(props: { searchParams: SearchParams }) {
     }
   } catch (error) {
     console.warn("News API call failed. Falling back to static mock data.", error);
+    isFallback = true;
     // Apply filters on fallback data locally
     let filtered = [...FALLBACK_NEWS];
     if (tab === "latest") {
@@ -144,6 +148,11 @@ export default async function NewsPage(props: { searchParams: SearchParams }) {
 
   return (
     <main className="kitchen-page">
+      {isFallback && (
+        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
+          ⚠ Showing sample content — live data unavailable
+        </div>
+      )}
       {/* Eyebrow + Header */}
       <header className="flex flex-col gap-2 reveal">
         <p className="eyebrow">SIET Archive</p>

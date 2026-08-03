@@ -1,4 +1,4 @@
-import type { Achievement, Article, Domain, NewsItem, Paginated, User } from "./types";
+import type { Achievement, Article, Domain, NewsItem, Paginated, CursorPaginated, SiteSettings, User } from "./types";
 
 const BASE = `${process.env.NEXT_PUBLIC_API_BASE!}/api/v1`;
 
@@ -148,6 +148,20 @@ function normalizePaginated<T>(res: any, mapItem: (x: any) => T): Paginated<T> {
   return { items, page, pages, total };
 }
 
+function normalizeCursorPaginated<T>(res: any, mapItem: (x: any) => T): CursorPaginated<T> {
+  const rawItems = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
+  const items = rawItems.map(mapItem);
+  const next_cursor = res?.pageInfo?.next_cursor ?? null;
+  const has_more = Boolean(res?.pageInfo?.has_more ?? false);
+  return {
+    items,
+    pageInfo: {
+      next_cursor,
+      has_more,
+    },
+  };
+}
+
 export const api = {
   login: async (b: { email: string; password: string }) => {
     currentUserPromise = null;
@@ -176,7 +190,10 @@ export const api = {
   },
   register: async (b: { name: string; email: string; password: string }) => {
     currentUserPromise = null;
-    return req<User>("/auth/register", { method: "POST", body: JSON.stringify(b) });
+    return req<{ id: string; email: string; email_verified: boolean }>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify(b),
+    });
   },
 
   likeStatus: (type: "news" | "articles" | "magazine", slug: string) =>
@@ -293,7 +310,7 @@ export const api = {
   // Admin News
   adminNews: async (q = "") => {
     const res = await req<any>(`/admin/news${q}`);
-    return normalizePaginated(res, normalizeNewsItem);
+    return normalizeCursorPaginated(res, normalizeNewsItem);
   },
   adminNewsCreate: async (b: any) => {
     const res = await req<any>("/admin/news", { method: "POST", body: JSON.stringify(b) });
@@ -308,7 +325,7 @@ export const api = {
   // Admin Articles
   adminArticles: async (q = "") => {
     const res = await req<any>(`/admin/articles${q}`);
-    return normalizePaginated(res, normalizeArticle);
+    return normalizeCursorPaginated(res, normalizeArticle);
   },
   adminArticlesCreate: async (b: any) => {
     const res = await req<any>("/admin/articles", { method: "POST", body: JSON.stringify(b) });
@@ -323,7 +340,7 @@ export const api = {
   // Admin Magazine
   adminMagazine: async (q = "") => {
     const res = await req<any>(`/admin/magazine${q}`);
-    return normalizePaginated(res, normalizeAchievement);
+    return normalizeCursorPaginated(res, normalizeAchievement);
   },
   adminMagazineCreate: async (b: any) => {
     const res = await req<any>("/admin/magazine", { method: "POST", body: JSON.stringify(b) });
@@ -351,4 +368,16 @@ export const api = {
   adminUserCreate: (b: any) => req<User>("/admin/users", { method: "POST", body: JSON.stringify(b) }),
   adminUserUpdate: (id: string, b: any) => req<User>(`/admin/users/${id}`, { method: "PUT", body: JSON.stringify(b) }),
   adminUserDelete: (id: string) => req<{ success: boolean }>(`/admin/users/${id}`, { method: "DELETE" }),
+
+  // Contact
+  submitContact: (data: { name: string; email: string; subject?: string; message: string }) =>
+    req<{ success: boolean }>("/contact", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  // Admin Settings
+  adminGetSettings: () => req<SiteSettings>("/admin/settings"),
+  adminUpdateSettings: (b: Partial<SiteSettings>) =>
+    req<SiteSettings>("/admin/settings", { method: "PUT", body: JSON.stringify(b) }),
 };
