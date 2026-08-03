@@ -25,16 +25,16 @@ export function ContentCard(props: ContentCardProps) {
         ? `/articles/${item.slug}`
         : `/magazine/${item.slug}`;
   const image =
-    variant === "news" ? item.image : variant === "article" ? item.cover : item.gallery[0];
+    variant === "news" ? item.image : variant === "article" ? item.cover : item.gallery?.[0];
   const excerpt =
     variant === "news" ? item.aiSummary : variant === "article" ? item.excerpt : item.description;
   const date = variant === "achievement" ? `${item.year}` : formatDate(item.publishedAt);
   const footer =
     variant === "news"
-      ? `${item.sourceName} · ${item.likes} likes`
+      ? `${item.sourceName ?? "SIET Desk"} · ${item.likes ?? 0} likes`
       : variant === "article"
-        ? `${item.author.name} · ${item.readingMinutes} min read`
-        : `${item.student.name} · ${item.department}`;
+        ? `${item.author?.name ?? "Author"} · ${item.readingMinutes ?? 5} min read`
+        : `${item.student?.name ?? "Student"} · ${item.department ?? ""}`;
 
   return (
     <article className="content-card reveal group">
@@ -55,7 +55,7 @@ export function ContentCard(props: ContentCardProps) {
       </Link>
       <div className="content-card-body">
         <p className="eyebrow">
-          {item.domain.name} · {date}
+          {item.domain?.name ?? "General"} · {date}
         </p>
         <h3>
           <Link href={href}>{item.title}</Link>
@@ -66,7 +66,7 @@ export function ContentCard(props: ContentCardProps) {
         {variant === "achievement" ? (
           <TagChip label={item.type} />
         ) : (
-          item.tags.slice(0, 2).map((tag) => <TagChip key={tag.slug} label={tag.name} />)
+          (item.tags || []).slice(0, 2).map((tag) => <TagChip key={tag.slug} label={tag.name} />)
         )}
       </div>
       <footer className="content-card-footer">

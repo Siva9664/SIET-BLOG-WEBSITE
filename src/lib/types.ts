@@ -64,6 +64,16 @@ export interface Paginated<T> {
   total: number;
 }
 
+export interface CursorPageInfo {
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+export interface CursorPaginated<T> {
+  items: T[];
+  pageInfo: CursorPageInfo;
+}
+
 export interface User {
   id: string;
   name: string;

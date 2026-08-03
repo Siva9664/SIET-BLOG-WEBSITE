@@ -8,6 +8,7 @@ export { Footer } from "./Footer";
 export { LoadingSkeleton } from "./LoadingSkeleton";
 export { Navbar } from "./Navbar";
 export { Pagination } from "./Pagination";
+export { CursorPagination } from "./CursorPagination";
 export { SearchBar } from "./SearchBar";
 export { SectionRail } from "./SectionRail";
 export { TagChip } from "./TagChip";

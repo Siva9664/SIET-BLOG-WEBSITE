@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import { Pagination } from "@/components/shared";
+import { CursorPagination } from "@/components/shared";
 import type { NewsItem, Domain } from "@/lib/types";
 
 // Fallbacks
@@ -47,8 +47,10 @@ const FALLBACK_NEWS: NewsItem[] = [
 export default function AdminNewsCRUDPage() {
   const [items, setItems] = useState<NewsItem[]>([]);
   const [domains, setDomains] = useState<Domain[]>(FALLBACK_DOMAINS);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([null]);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Drawer / Form State
@@ -72,29 +74,48 @@ export default function AdminNewsCRUDPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Load Data
-  const loadNews = async (pageNum = 1) => {
+  const loadNews = async (currentCursor: string | null) => {
     setLoading(true);
     try {
-      const res = await api.adminNews(`?page=${pageNum}`);
+      const res = await api.adminNews(currentCursor ? `?cursor=${currentCursor}` : "");
       setItems(res.items);
-      setPage(res.page);
-      setTotalPages(res.pages);
+      setHasMore(res.pageInfo.has_more);
+      setNextCursor(res.pageInfo.next_cursor);
     } catch (err) {
       console.warn("Admin news API offline, loading static news mock fallbacks.", err);
       setItems(FALLBACK_NEWS);
-      setPage(1);
-      setTotalPages(1);
+      setHasMore(false);
+      setNextCursor(null);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleNext = () => {
+    if (nextCursor) {
+      setCursorHistory((prev) => [...prev, nextCursor]);
+      setCursor(nextCursor);
+    }
+  };
+
+  const handlePrevious = () => {
+    if (cursorHistory.length > 1) {
+      const newHistory = cursorHistory.slice(0, -1);
+      const prevCursor = newHistory[newHistory.length - 1];
+      setCursorHistory(newHistory);
+      setCursor(prevCursor);
+    }
+  };
+
   useEffect(() => {
-    loadNews(page);
+    loadNews(cursor);
+  }, [cursor]);
+
+  useEffect(() => {
     api.domains()
       .then(setDomains)
       .catch(() => setDomains(FALLBACK_DOMAINS));
-  }, [page]);
+  }, []);
 
   // Open Drawer for Create
   const handleOpenCreate = () => {
@@ -120,7 +141,7 @@ export default function AdminNewsCRUDPage() {
     setAiSummary(item.aiSummary || "");
     setSourceName(item.sourceName || "");
     setSourceUrl(item.sourceUrl || "");
-    setDomainSlug(item.domain.slug);
+    setDomainSlug(item.domain?.slug || domains[0]?.slug || "");
     setImage(item.image || "");
     setPublishedAt(new Date(item.publishedAt).toISOString().substring(0, 16));
     setTrending(!!item.trending);
@@ -160,7 +181,7 @@ export default function AdminNewsCRUDPage() {
         await api.adminNewsCreate(payload);
       }
       setIsDrawerOpen(false);
-      loadNews(page);
+      loadNews(cursor);
     } catch (err) {
       console.error("Save failure:", err);
       // Client-side local fallback update to simulate saves offline
@@ -186,7 +207,7 @@ export default function AdminNewsCRUDPage() {
   const handleDelete = async (id: string) => {
     try {
       await api.adminNewsDelete(id);
-      loadNews(page);
+      loadNews(cursor);
     } catch (err) {
       console.warn("Delete call failed. Applying offline item removal.", err);
       setItems(items.filter((i) => i.id !== id));
@@ -238,7 +259,7 @@ export default function AdminNewsCRUDPage() {
                   <td className="p-4 font-display font-medium text-ink max-w-sm truncate">
                     {item.title}
                   </td>
-                  <td className="p-4 font-util text-ink-soft">{item.domain.name}</td>
+                  <td className="p-4 font-util text-ink-soft">{item.domain?.name ?? "General"}</td>
                   <td className="p-4 font-sans text-ink-soft">
                     {new Date(item.publishedAt).toLocaleDateString()}
                   </td>
@@ -298,9 +319,14 @@ export default function AdminNewsCRUDPage() {
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
+      {(hasMore || cursorHistory.length > 1) && (
         <div className="flex justify-center pt-4">
-          <Pagination page={page} pages={totalPages} basePath="/admin/news" />
+          <CursorPagination
+            hasMore={hasMore}
+            hasPrevious={cursorHistory.length > 1}
+            onNext={handleNext}
+            onPrevious={handlePrevious}
+          />
         </div>
       )}
 
