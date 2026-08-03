@@ -14,6 +14,8 @@ class News(Base, BaseModelMixin):
     slug: Mapped[str] = mapped_column(String(300), unique=True, index=True, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(500), unique=True, index=True, nullable=True)
+    source_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     
     status: Mapped[ContentStatus] = mapped_column(Enum(ContentStatus), default=ContentStatus.DRAFT, nullable=False)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

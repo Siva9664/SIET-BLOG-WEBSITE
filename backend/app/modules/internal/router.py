@@ -40,13 +40,13 @@ async def reindex_search(
     return success(data=res)
 
 
-@router.post("/news/fetch")
-async def fetch_news_external(key: str = Depends(verify_internal_api_key)):
-    # No RSS ingestion pipeline exists in this codebase.
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="External news ingestion is not implemented.",
-    )
+@router.post("/news/fetch", status_code=status.HTTP_202_ACCEPTED)
+async def fetch_news_external(
+    key: str = Depends(verify_internal_api_key),
+    service: InternalService = Depends(get_internal_service),
+):
+    res = await service.fetch_news_external()
+    return success(data=res)
 
 
 @router.post("/analytics/trigger", response_model=SuccessResponse[InternalActionResponse])
