@@ -70,3 +70,11 @@ export interface User {
   email: string;
   role: "admin" | "user";
 }
+
+export interface SiteSettings {
+  site_name: string;
+  credit_line: string;
+  accent_color: string;
+  newsletter_enabled: boolean;
+  featured_domains: string;
+}
