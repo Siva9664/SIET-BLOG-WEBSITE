@@ -62,6 +62,19 @@ class Settings(BaseSettings):
 
     INTERNAL_API_KEY: SecretStr = SecretStr("internal-api-key-secret")
 
+    RSS_FEEDS: list[dict[str, str]] = [
+        {
+            "feed_url": "https://news.google.com/rss/search?q=machine+learning",
+            "domain_slug": "machine-learning",
+            "source_name": "Google News ML",
+        },
+        {
+            "feed_url": "https://news.google.com/rss/search?q=robotics",
+            "domain_slug": "robotics",
+            "source_name": "Google News Robotics",
+        },
+    ]
+
     ALLOWED_ORIGINS: Annotated[
         list[str] | str,
         BeforeValidator(parse_cors_origins),
