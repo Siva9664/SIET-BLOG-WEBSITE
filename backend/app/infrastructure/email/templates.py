@@ -1,3 +1,6 @@
+import html
+
+
 def get_verification_html(verification_link: str) -> str:
     """Generates the HTML email body for email verification."""
     return f"""
@@ -33,6 +36,31 @@ def get_reset_password_html(reset_link: str) -> str:
                 <p><a href="{reset_link}">{reset_link}</a></p>
                 <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
                 <p style="font-size: 12px; color: #666;">This password reset link will expire in 2 hours.</p>
+            </div>
+        </body>
+    </html>
+    """
+
+
+def get_contact_notification_html(name: str, email: str, subject: str | None, message: str) -> str:
+    """Generates the HTML email body for contact form submissions."""
+    safe_name = html.escape(name)
+    safe_email = html.escape(email)
+    safe_subject = html.escape(subject) if subject else "General Inquiry"
+    safe_message = html.escape(message)
+
+    return f"""
+    <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+                <h2 style="color: #0F2B5C;">New Contact Inquiry — SIET AI Lab</h2>
+                <p><strong>From:</strong> {safe_name} (&lt;<a href="mailto:{safe_email}">{safe_email}</a>&gt;)</p>
+                <p><strong>Subject:</strong> {safe_subject}</p>
+                <hr style="border: none; border-top: 1px solid #eee; margin: 15px 0;">
+                <p><strong>Message:</strong></p>
+                <div style="background-color: #f9f9f9; padding: 15px; border-radius: 4px; white-space: pre-wrap;">{safe_message}</div>
+                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                <p style="font-size: 12px; color: #666;">Submitted via SIET News Contact Form.</p>
             </div>
         </body>
     </html>

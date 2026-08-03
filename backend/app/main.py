@@ -7,6 +7,7 @@ from app.modules.admin.router import router as admin_router
 from app.modules.analytics.router import router as analytics_router
 from app.modules.articles.router import router as articles_router
 from app.modules.auth.router import router as auth_router
+from app.modules.contact.router import router as contact_router
 from app.modules.domains.router import router as domains_router
 from app.modules.engagement.router import router as engagement_router
 from app.modules.health.router import router as health_router
@@ -67,3 +68,4 @@ app.include_router(magazine_router, prefix=settings.API_PREFIX)
 app.include_router(engagement_router, prefix=settings.API_PREFIX)
 app.include_router(analytics_router, prefix=settings.API_PREFIX)
 app.include_router(search_router, prefix=settings.API_PREFIX)
+app.include_router(contact_router, prefix=settings.API_PREFIX)
