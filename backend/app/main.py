@@ -17,6 +17,7 @@ from app.modules.magazine.router import router as magazine_router
 from app.modules.media.router import router as media_router
 from app.modules.news.router import router as news_router
 from app.modules.search.router import router as search_router
+from app.modules.settings.router import router as settings_router
 from app.modules.tags.router import router as tags_router
 from app.shared.exceptions.handlers import register_exception_handlers
 from app.shared.middleware.audit import AuditMiddleware
@@ -69,3 +70,4 @@ app.include_router(engagement_router, prefix=settings.API_PREFIX)
 app.include_router(analytics_router, prefix=settings.API_PREFIX)
 app.include_router(search_router, prefix=settings.API_PREFIX)
 app.include_router(contact_router, prefix=settings.API_PREFIX)
+app.include_router(settings_router, prefix=settings.API_PREFIX)

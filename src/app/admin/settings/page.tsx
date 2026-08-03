@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useState, useEffect } from "react";
+import { api } from "@/lib/api";
 
 export default function AdminSettingsPage() {
   const [siteName, setSiteName] = useState("SIET News");
@@ -10,44 +11,63 @@ export default function AdminSettingsPage() {
   const [newsletterEnabled, setNewsletterEnabled] = useState(true);
   const [featuredDomains, setFeaturedDomains] = useState("machine-learning, robotics");
 
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
-  // Load config from localStorage if present
+  // Load config from backend API
   useEffect(() => {
-    const savedName = localStorage.getItem("siet_settings_name");
-    const savedCredit = localStorage.getItem("siet_settings_credit");
-    const savedAccent = localStorage.getItem("siet_settings_accent");
-    const savedNews = localStorage.getItem("siet_settings_newsletter");
-    const savedFeat = localStorage.getItem("siet_settings_featured");
-
-    if (savedName) setSiteName(savedName);
-    if (savedCredit) setCreditLine(savedCredit);
-    if (savedAccent) setAccentColor(savedAccent);
-    if (savedNews) setNewsletterEnabled(savedNews === "true");
-    if (savedFeat) setFeaturedDomains(savedFeat);
+    let unmounted = false;
+    api
+      .adminGetSettings()
+      .then((res) => {
+        if (!unmounted && res) {
+          if (res.site_name) setSiteName(res.site_name);
+          if (res.credit_line) setCreditLine(res.credit_line);
+          if (res.accent_color) setAccentColor(res.accent_color);
+          if (res.newsletter_enabled !== undefined) setNewsletterEnabled(res.newsletter_enabled);
+          if (res.featured_domains) setFeaturedDomains(res.featured_domains);
+        }
+      })
+      .catch((err) => console.error("Failed to load admin settings:", err))
+      .finally(() => {
+        if (!unmounted) setLoading(false);
+      });
+    return () => {
+      unmounted = true;
+    };
   }, []);
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setSaveSuccess(false);
 
-    // Simulate saving process
-    setTimeout(() => {
-      localStorage.setItem("siet_settings_name", siteName);
-      localStorage.setItem("siet_settings_credit", creditLine);
-      localStorage.setItem("siet_settings_accent", accentColor);
-      localStorage.setItem("siet_settings_newsletter", String(newsletterEnabled));
-      localStorage.setItem("siet_settings_featured", featuredDomains);
-
-      setSaving(false);
+    try {
+      await api.adminUpdateSettings({
+        site_name: siteName,
+        credit_line: creditLine,
+        accent_color: accentColor,
+        newsletter_enabled: newsletterEnabled,
+        featured_domains: featuredDomains,
+      });
       setSaveSuccess(true);
-
-      // Dismiss confirmation message after 3 seconds
       setTimeout(() => setSaveSuccess(false), 3000);
-    }, 600);
+    } catch (err) {
+      console.error("Failed to save settings:", err);
+      alert("Failed to save settings. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="py-12 text-center font-util text-eyebrow text-ink-soft uppercase tracking-wider">
+        Loading Console Settings...
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -59,17 +79,6 @@ export default function AdminSettingsPage() {
         <h1 className="font-display text-h1 font-semibold text-ink mt-1">
           Console Settings
         </h1>
-      </div>
-
-      {/* Gap Warning Banner */}
-      <div className="border border-line bg-paper-2 p-4 text-xs">
-        <p className="font-util text-eyebrow text-accent uppercase font-bold tracking-wider">
-          Backend Integration Gap
-        </p>
-        <p className="font-body text-ink mt-1 leading-relaxed">
-          Because the backend API specification does not define a dedicated settings storage endpoint (e.g. `/admin/settings`),
-          changes saved here will be stored in your local browser’s `localStorage`. Live production synchronization is pending API deployment.
-        </p>
       </div>
 
       {/* Settings Form */}
@@ -175,7 +184,7 @@ export default function AdminSettingsPage() {
           
           {saveSuccess && (
             <span className="font-util text-[10px] uppercase tracking-wider text-accent font-bold">
-              ✓ Preferences recorded in browser storage
+              ✓ Preferences saved successfully
             </span>
           )}
         </div>

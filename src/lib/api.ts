@@ -1,4 +1,4 @@
-import type { Achievement, Article, Domain, NewsItem, Paginated, User } from "./types";
+import type { Achievement, Article, Domain, NewsItem, Paginated, SiteSettings, User } from "./types";
 
 const BASE = `${process.env.NEXT_PUBLIC_API_BASE!}/api/v1`;
 
@@ -162,4 +162,9 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+
+  // Admin Settings
+  adminGetSettings: () => req<SiteSettings>("/admin/settings"),
+  adminUpdateSettings: (b: Partial<SiteSettings>) =>
+    req<SiteSettings>("/admin/settings", { method: "PUT", body: JSON.stringify(b) }),
 };
