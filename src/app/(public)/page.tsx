@@ -239,12 +239,14 @@ const FALLBACK_EVENTS = [
 
 export default async function HomePage() {
   let homeData: any = {};
+  let isFallback = false;
   
   try {
     homeData = await api.home();
   } catch (error) {
     // Gracefully catch and use fallback values
     console.warn("Home API offline. Displaying client-side fallback data.", error);
+    isFallback = true;
   }
 
   // The real /home payload only ever has these four keys (featured, trending,
@@ -271,6 +273,11 @@ export default async function HomePage() {
     <>
       <F1IntroHero />
       <main className="kitchen-page">
+        {isFallback && (
+          <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
+            ⚠ Showing sample content — live data unavailable
+          </div>
+        )}
         {/* 1. Masthead */}
         <header className="flex flex-col gap-3 pt-6 reveal">
         <h1 className="font-display text-masthead font-semibold leading-[0.9] text-ink tracking-tight">

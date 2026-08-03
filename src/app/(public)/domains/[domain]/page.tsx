@@ -144,11 +144,14 @@ export default async function DomainDetailPage(props: { params: Params }) {
   let articles: Article[] = [];
   let achievements: Achievement[] = [];
 
+  let isFallback = false;
+
   try {
     domain = await api.domain(domainSlug);
   } catch (error) {
     console.warn(`Failed to fetch domain details for '${domainSlug}', using fallback.`, error);
     domain = getFallbackDomain(domainSlug);
+    isFallback = true;
   }
 
   // Fetch news for domain
@@ -158,6 +161,7 @@ export default async function DomainDetailPage(props: { params: Params }) {
   } catch (error) {
     console.warn(`Failed to fetch news for domain '${domainSlug}'. Loading fallbacks.`, error);
     newsItems = FALLBACK_NEWS.filter((n) => n.domain.slug === domainSlug);
+    isFallback = true;
   }
 
   // Fetch articles for domain
@@ -167,6 +171,7 @@ export default async function DomainDetailPage(props: { params: Params }) {
   } catch (error) {
     console.warn(`Failed to fetch articles for domain '${domainSlug}'. Loading fallbacks.`, error);
     articles = FALLBACK_ARTICLES.filter((a) => a.domain.slug === domainSlug);
+    isFallback = true;
   }
 
   // Fetch achievements and filter client-side (no domain endpoint exists in §6 for magazine)
@@ -176,12 +181,18 @@ export default async function DomainDetailPage(props: { params: Params }) {
   } catch (error) {
     console.warn(`Failed to fetch achievements for domain '${domainSlug}'. Loading fallbacks.`, error);
     achievements = FALLBACK_ACHIEVEMENTS.filter((a) => a.domain.slug === domainSlug);
+    isFallback = true;
   }
 
   const hasContent = newsItems.length > 0 || articles.length > 0 || achievements.length > 0;
 
   return (
     <main className="kitchen-page">
+      {isFallback && (
+        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
+          ⚠ Showing sample content — live data unavailable
+        </div>
+      )}
       {/* Header */}
       <header className="space-y-4">
         <Breadcrumb

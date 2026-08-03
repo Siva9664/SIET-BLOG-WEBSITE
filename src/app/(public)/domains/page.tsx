@@ -23,16 +23,23 @@ const PIN_COLORS = [
 
 export default async function DomainsPage() {
   let domains: Domain[] = [];
+  let isFallback = false;
 
   try {
     domains = await api.domains();
   } catch (error) {
     console.warn("Failed to fetch domains list, using fallback.", error);
     domains = FALLBACK_DOMAINS;
+    isFallback = true;
   }
 
   return (
     <main className="kitchen-page">
+      {isFallback && (
+        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
+          ⚠ Showing sample content — live data unavailable
+        </div>
+      )}
       {/* Breadcrumb Header */}
       <header className="space-y-4">
         <Breadcrumb

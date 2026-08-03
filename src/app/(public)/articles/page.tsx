@@ -95,11 +95,14 @@ export default async function ArticlesPage(props: { searchParams: SearchParams }
   let currentPage = pageNum;
   let totalPages = 1;
 
+  let isFallback = false;
+
   try {
     domains = await api.domains();
   } catch (error) {
     console.warn("Failed to fetch domains, using fallback.", error);
     domains = FALLBACK_DOMAINS;
+    isFallback = true;
   }
 
   try {
@@ -117,6 +120,7 @@ export default async function ArticlesPage(props: { searchParams: SearchParams }
     }
   } catch (error) {
     console.warn("Articles API call failed. Falling back to static mock data.", error);
+    isFallback = true;
     let filtered = [...FALLBACK_ARTICLES];
     if (activeDomain) {
       filtered = filtered.filter(item => item.domain.slug === activeDomain);
@@ -132,6 +136,11 @@ export default async function ArticlesPage(props: { searchParams: SearchParams }
 
   return (
     <main className="kitchen-page">
+      {isFallback && (
+        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
+          ⚠ Showing sample content — live data unavailable
+        </div>
+      )}
       <header className="flex flex-col gap-2 reveal">
         <p className="eyebrow">Student Writing</p>
         <h1 className="font-display text-h1 font-semibold leading-tight text-ink">

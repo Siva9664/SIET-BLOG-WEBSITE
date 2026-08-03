@@ -129,12 +129,15 @@ export default async function NewsDetailPage(props: { params: Params }) {
   let item: NewsItem & { body?: string };
   let related: NewsItem[] = [];
 
+  let isFallback = false;
+
   try {
     // Fetch individual news item
     item = await api.newsBySlug(slug);
   } catch (error) {
     console.warn(`News detail API for slug '${slug}' offline. Loading fallback.`, error);
     item = getFallbackDetail(slug);
+    isFallback = true;
   }
 
   try {
@@ -143,6 +146,7 @@ export default async function NewsDetailPage(props: { params: Params }) {
     related = res.items.filter((r) => r.slug !== slug).slice(0, 4);
   } catch (error) {
     console.warn("Related news API call failed. Using filtered fallbacks.", error);
+    isFallback = true;
     related = FALLBACK_NEWS.filter((r) => r.domain.slug === item.domain.slug && r.slug !== slug).slice(
       0,
       4,
@@ -160,6 +164,11 @@ export default async function NewsDetailPage(props: { params: Params }) {
 
   return (
     <main className="kitchen-page">
+      {isFallback && (
+        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
+          ⚠ Showing sample content — live data unavailable
+        </div>
+      )}
       {/* Breadcrumb Header */}
       <header className="space-y-4">
         <Breadcrumb

@@ -149,11 +149,16 @@ function SearchContent() {
   const [selectedType, setSelectedType] = useState<string>("all");
   const [selectedDomain, setSelectedDomain] = useState<string>("all");
 
+  const [isFallback, setIsFallback] = useState(false);
+
   // Fetch domains on mount
   useEffect(() => {
     api.domains()
       .then(setDomains)
-      .catch(() => setDomains(FALLBACK_DOMAINS));
+      .catch(() => {
+        setDomains(FALLBACK_DOMAINS);
+        setIsFallback(true);
+      });
   }, []);
 
   // Sync state if URL param updates
@@ -182,6 +187,7 @@ function SearchContent() {
       })
       .catch((err) => {
         console.warn("Universal search API offline, resolving search client-side from fallbacks.", err);
+        setIsFallback(true);
         
         // Client-side search algorithm on fallback datasets
         const term = query.toLowerCase();
@@ -246,6 +252,11 @@ function SearchContent() {
 
   return (
     <main className="kitchen-page">
+      {isFallback && (
+        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
+          ⚠ Showing sample content — live data unavailable
+        </div>
+      )}
       {/* Header */}
       <header className="space-y-4">
         <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Search" }]} />
