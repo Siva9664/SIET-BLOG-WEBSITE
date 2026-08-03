@@ -155,4 +155,11 @@ export const api = {
   adminUserCreate: (b: any) => req<User>("/admin/users", { method: "POST", body: JSON.stringify(b) }),
   adminUserUpdate: (id: string, b: any) => req<User>(`/admin/users/${id}`, { method: "PUT", body: JSON.stringify(b) }),
   adminUserDelete: (id: string) => req<{ success: boolean }>(`/admin/users/${id}`, { method: "DELETE" }),
+
+  // Contact
+  submitContact: (data: { name: string; email: string; subject?: string; message: string }) =>
+    req<{ success: boolean }>("/contact", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };

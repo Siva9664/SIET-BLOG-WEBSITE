@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.infrastructure.email.client import ResendClient
 from app.infrastructure.email.templates import (
+    get_contact_notification_html,
     get_reset_password_html,
     get_verification_html,
 )
@@ -51,5 +52,20 @@ class EmailProvider:
             "to": [to_email],
             "subject": "Reset Your Password",
             "html": html_content
+        }
+        return bool(self.client.send_email(params))
+
+    async def send_contact_notification(self, name: str, email: str, subject: str | None, message: str) -> bool:
+        """Asynchronously triggers contact form notification email to admin/lab receiver."""
+        from app.core.config import settings
+        receiver_email = settings.CONTACT_RECEIVER_EMAIL
+        html_content = get_contact_notification_html(name, email, subject, message)
+        email_subject = f"Contact Form: {subject}" if subject else f"Contact Form submission from {name}"
+        params = {
+            "from": self.from_email,
+            "to": [receiver_email],
+            "reply_to": email,
+            "subject": email_subject,
+            "html": html_content,
         }
         return bool(self.client.send_email(params))

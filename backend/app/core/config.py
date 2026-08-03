@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     R2_BUCKET_NAME: str = ""
 
     INTERNAL_API_KEY: SecretStr = SecretStr("internal-api-key-secret")
+    CONTACT_RECEIVER_EMAIL: str = "ai.lab@siet.ac.in"
 
     RSS_FEEDS: list[dict[str, str]] = [
         {
