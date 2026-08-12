@@ -1,12 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api } from "@/lib/api";
 import { CursorPagination } from "@/components/shared";
+import {
+  AdminDrawer,
+  AdminTable,
+  AdminField,
+  AdminSearchBar,
+  AdminToast,
+  adminInputCls,
+  adminTextareaCls,
+  adminSelectCls,
+} from "@/components/admin/AdminShared";
 import type { Article, Domain } from "@/lib/types";
 
-// Fallbacks
+// ─── Fallbacks ───────────────────────────────────────────────────────────────
 const FALLBACK_DOMAINS: Domain[] = [
   { slug: "machine-learning", name: "Machine Learning", count: 42 },
   { slug: "robotics", name: "Robotics", count: 19 },
@@ -20,43 +30,53 @@ const FALLBACK_ARTICLES: Article[] = [
     slug: "building-responsible-rag",
     title: "What we learned building a responsible retrieval system",
     excerpt: "A student note on source quality, citation habits, and why retrieval interfaces often create better reading.",
-    body: "<p>Retrieval-Augmented Generation (RAG) is quickly becoming the standard architecture for search and knowledge retrieval inside organizations. In this article, we outline our journey building a customized retrieval system for campus archives.</p>",
+    body: "<p>Retrieval-Augmented Generation (RAG) is quickly becoming the standard architecture...</p>",
     author: {
       id: "a1",
       name: "Kaviya Raman",
       role: "Student Author",
-      avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=600&q=80",
-      department: "Artificial Intelligence and Data Science",
+      avatar: "",
+      department: "AI and Data Science",
     },
     domain: FALLBACK_DOMAINS[3],
-    tags: [
-      { slug: "rag", name: "RAG" },
-      { slug: "systems", name: "Systems" },
-    ],
+    tags: [{ slug: "rag", name: "RAG" }],
     cover: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=900&q=80",
     publishedAt: "2026-07-06T10:00:00.000Z",
     readingMinutes: 6,
     likes: 142,
-    bookmarked: true,
   },
 ];
 
+function toSlug(str: string) {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+function fmt(iso: string) {
+  return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function AdminArticlesCRUDPage() {
-  const [items, setItems] = useState<Article[]>([]);
+  const [allItems, setAllItems] = useState<Article[]>([]);
   const [domains, setDomains] = useState<Domain[]>(FALLBACK_DOMAINS);
   const [cursor, setCursor] = useState<string | null>(null);
   const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([null]);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" | "info" } | null>(null);
 
-  // Drawer / Form State
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  // Filters
+  const [search, setSearch] = useState("");
+  const [domainFilter, setDomainFilter] = useState("all");
+
+  // Drawer
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [editItem, setEditItem] = useState<Article | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  // Form Fields
+  // Form fields
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
   const [excerpt, setExcerpt] = useState("");
@@ -71,20 +91,38 @@ export default function AdminArticlesCRUDPage() {
   const [publishedAt, setPublishedAt] = useState("");
   const [readingMinutes, setReadingMinutes] = useState(5);
 
-  // Delete Confirm ID
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // Filtered items
+  const items = useMemo(() => {
+    let list = allItems;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (i) =>
+          i.title.toLowerCase().includes(q) ||
+          i.excerpt?.toLowerCase().includes(q) ||
+          i.author?.name.toLowerCase().includes(q)
+      );
+    }
+    if (domainFilter !== "all") {
+      list = list.filter((i) => i.domain?.slug === domainFilter);
+    }
+    return list;
+  }, [allItems, search, domainFilter]);
 
-  // Load Data
-  const loadArticles = async (currentCursor: string | null) => {
+  const showToast = (msg: string, type: "success" | "error" | "info" = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 5000);
+  };
+
+  const loadArticles = async (cur: string | null) => {
     setLoading(true);
     try {
-      const res = await api.adminArticles(currentCursor ? `?cursor=${currentCursor}` : "");
-      setItems(res.items);
+      const res = await api.adminArticles(cur ? `?cursor=${cur}` : "");
+      setAllItems(res.items);
       setHasMore(res.pageInfo.has_more);
       setNextCursor(res.pageInfo.next_cursor);
-    } catch (err) {
-      console.warn("Admin articles API offline, loading static articles mock fallbacks.", err);
-      setItems(FALLBACK_ARTICLES);
+    } catch {
+      setAllItems(FALLBACK_ARTICLES);
       setHasMore(false);
       setNextCursor(null);
     } finally {
@@ -92,511 +130,233 @@ export default function AdminArticlesCRUDPage() {
     }
   };
 
-  const handleNext = () => {
-    if (nextCursor) {
-      setCursorHistory((prev) => [...prev, nextCursor]);
-      setCursor(nextCursor);
-    }
-  };
-
-  const handlePrevious = () => {
-    if (cursorHistory.length > 1) {
-      const newHistory = cursorHistory.slice(0, -1);
-      const prevCursor = newHistory[newHistory.length - 1];
-      setCursorHistory(newHistory);
-      setCursor(prevCursor);
-    }
-  };
-
+  useEffect(() => { loadArticles(cursor); }, [cursor]);
   useEffect(() => {
-    loadArticles(cursor);
-  }, [cursor]);
-
-  useEffect(() => {
-    api.domains()
-      .then(setDomains)
-      .catch(() => setDomains(FALLBACK_DOMAINS));
+    api.domains().then(setDomains).catch(() => setDomains(FALLBACK_DOMAINS));
   }, []);
 
-  // Open Drawer for Create
-  const handleOpenCreate = () => {
-    setEditItem(null);
-    setTitle("");
-    setSlug("");
-    setExcerpt("");
-    setBody("");
-    setAuthorName("Jane Doe");
-    setAuthorRole("Student Author");
-    setAuthorDept("Artificial Intelligence and Data Science");
-    setAuthorAvatar("");
-    setDomainSlug(domains[0]?.slug || "");
-    setCover("");
-    setTagsCsv("Research, AI");
-    setPublishedAt(new Date().toISOString().substring(0, 16));
-    setReadingMinutes(5);
-    setFormError(null);
-    setIsDrawerOpen(true);
+  const handleNext = () => {
+    if (nextCursor) { setCursorHistory((h) => [...h, nextCursor]); setCursor(nextCursor); }
+  };
+  const handlePrevious = () => {
+    if (cursorHistory.length > 1) {
+      const h = cursorHistory.slice(0, -1);
+      setCursorHistory(h);
+      setCursor(h[h.length - 1]);
+    }
   };
 
-  // Open Drawer for Edit
-  const handleOpenEdit = (item: Article) => {
+  const openCreate = () => {
+    setEditItem(null);
+    setTitle(""); setSlug(""); setExcerpt(""); setBody("");
+    setAuthorName(""); setAuthorRole("Student Author"); setAuthorDept(""); setAuthorAvatar("");
+    setDomainSlug(domains[0]?.slug || ""); setCover(""); setTagsCsv("");
+    setPublishedAt(new Date().toISOString().substring(0, 16)); setReadingMinutes(5);
+    setFormError(null); setDrawerOpen(true);
+  };
+
+  const openEdit = (item: Article) => {
     setEditItem(item);
-    setTitle(item.title);
-    setSlug(item.slug);
-    setExcerpt(item.excerpt || "");
-    setBody(item.body || "");
-    setAuthorName(item.author?.name || "");
-    setAuthorRole(item.author?.role || "");
-    setAuthorDept(item.author?.department || "");
-    setAuthorAvatar(item.author?.avatar || "");
-    setDomainSlug(item.domain?.slug || domains[0]?.slug || "");
-    setCover(item.cover || "");
+    setTitle(item.title); setSlug(item.slug); setExcerpt(item.excerpt || ""); setBody(item.body || "");
+    setAuthorName(item.author?.name || ""); setAuthorRole(item.author?.role || ""); setAuthorDept(item.author?.department || ""); setAuthorAvatar(item.author?.avatar || "");
+    setDomainSlug(item.domain?.slug || domains[0]?.slug || ""); setCover(item.cover || "");
     setTagsCsv(item.tags?.map((t) => t.name).join(", ") || "");
     setPublishedAt(new Date(item.publishedAt).toISOString().substring(0, 16));
     setReadingMinutes(item.readingMinutes || 5);
-    setFormError(null);
-    setIsDrawerOpen(true);
+    setFormError(null); setDrawerOpen(true);
   };
 
-  // Submit Drawer Form
-  const handleFormSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !slug || !domainSlug || !authorName) {
-      setFormError("Title, Slug, Domain, and Author Name fields are required.");
+      setFormError("Title, Slug, Domain, and Author Name are required.");
       return;
     }
-
     setSubmitting(true);
     setFormError(null);
-
     const activeDomain = domains.find((d) => d.slug === domainSlug) || FALLBACK_DOMAINS[0];
-
-    const tagsArray = tagsCsv
-      .split(",")
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .map((tag) => ({
-        name: tag,
-        slug: tag.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
-      }));
-
+    const tagsArray = tagsCsv.split(",").map((t) => t.trim()).filter(Boolean).map((tag) => ({ name: tag, slug: toSlug(tag) }));
     const payload = {
-      title,
-      slug,
-      excerpt,
-      body,
-      author: {
-        id: editItem?.author.id || `a-mock-${Date.now()}`,
-        name: authorName,
-        role: authorRole,
-        department: authorDept,
-        avatar: authorAvatar,
-      },
-      domain: activeDomain,
-      cover,
-      tags: tagsArray,
-      publishedAt: new Date(publishedAt).toISOString(),
-      readingMinutes: Number(readingMinutes),
+      title, slug, excerpt, body,
+      author: { id: editItem?.author.id || `a-${Date.now()}`, name: authorName, role: authorRole, department: authorDept, avatar: authorAvatar },
+      domain: activeDomain, cover, tags: tagsArray,
+      publishedAt: new Date(publishedAt).toISOString(), readingMinutes: Number(readingMinutes),
     };
-
     try {
-      if (editItem) {
-        await api.adminArticlesUpdate(editItem.id, payload);
-      } else {
-        await api.adminArticlesCreate(payload);
-      }
-      setIsDrawerOpen(false);
+      if (editItem) { await api.adminArticlesUpdate(editItem.id, payload); showToast("Article updated.", "success"); }
+      else { await api.adminArticlesCreate(payload); showToast("Article created.", "success"); }
+      setDrawerOpen(false);
       loadArticles(cursor);
-    } catch (err) {
-      console.error("Save failure:", err);
-      // Client-side local fallback update to simulate saves offline
-      const mockSavedItem: Article = {
-        id: editItem?.id || `art-mock-${Date.now()}`,
-        ...payload,
-        likes: editItem?.likes || 0,
-        bookmarked: editItem?.bookmarked || false,
-      };
-
-      if (editItem) {
-        setItems(items.map((i) => (i.id === editItem.id ? mockSavedItem : i)));
-      } else {
-        setItems([mockSavedItem, ...items]);
-      }
-      setIsDrawerOpen(false);
+    } catch {
+      const mock: Article = { id: editItem?.id || `art-${Date.now()}`, ...payload, likes: editItem?.likes || 0 };
+      if (editItem) setAllItems((p) => p.map((i) => (i.id === editItem.id ? mock : i)));
+      else setAllItems((p) => [mock, ...p]);
+      showToast("Saved locally (API offline).", "info");
+      setDrawerOpen(false);
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Handle Delete
   const handleDelete = async (id: string) => {
     try {
       await api.adminArticlesDelete(id);
       loadArticles(cursor);
-    } catch (err) {
-      console.warn("Delete call failed. Applying offline item removal.", err);
-      setItems(items.filter((i) => i.id !== id));
+      showToast("Article deleted.", "success");
+    } catch {
+      setAllItems((p) => p.filter((i) => i.id !== id));
+      showToast("Removed locally (API offline).", "info");
     } finally {
       setConfirmDeleteId(null);
     }
   };
 
   return (
-    <div className="space-y-6 relative min-h-[80vh]">
-      {/* Page Header */}
-      <div className="flex justify-between items-end border-b border-line pb-4">
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-line pb-4">
         <div>
-          <p className="font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-            editorial console
-          </p>
-          <h1 className="font-display text-h2 font-semibold text-ink mt-1">
-            Research Articles
-          </h1>
+          <p className="font-util text-[10px] text-ink-soft uppercase tracking-widest">Editorial Console</p>
+          <h1 className="font-display text-h2 font-semibold text-ink mt-1">Research Articles</h1>
+          <p className="font-util text-[10px] text-ink-soft mt-1">{allItems.length} total · {items.length} shown</p>
         </div>
-        <button
-          onClick={handleOpenCreate}
-          className="font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent border border-ink transition-colors px-4 py-2 cursor-pointer"
-        >
-          Write Article
+        <button onClick={openCreate} className="font-util text-[10px] uppercase tracking-wider text-paper bg-accent hover:opacity-90 border border-accent px-4 py-2 cursor-pointer transition-opacity">
+          + Write Article
         </button>
       </div>
 
-      {/* Main Table grid */}
-      <div className="border border-line bg-paper">
-        {loading ? (
-          <div className="p-8 text-center font-display text-xs italic text-ink-soft">
-            Querying article records...
-          </div>
-        ) : items.length > 0 ? (
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-line bg-paper-2 font-util text-[10px] text-ink-soft uppercase tracking-wider">
-                <th className="p-4 font-semibold">Title</th>
-                <th className="p-4 font-semibold">Author</th>
-                <th className="p-4 font-semibold">Domain</th>
-                <th className="p-4 font-semibold">Reading Time</th>
-                <th className="p-4 font-semibold text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {items.map((item) => (
-                <tr key={item.id} className="hover:bg-paper-2 transition-colors">
-                  <td className="p-4 font-display font-medium text-ink max-w-sm truncate">
-                    {item.title}
-                  </td>
-                  <td className="p-4 font-display text-ink-soft">{item.author?.name ?? "Editorial Staff"}</td>
-                  <td className="p-4 font-util text-ink-soft">{item.domain?.name ?? "General"}</td>
-                  <td className="p-4 font-sans text-ink-soft">
-                    {item.readingMinutes} min
-                  </td>
-                  <td className="p-4 text-right space-x-3">
-                    {confirmDeleteId === item.id ? (
-                      <span className="font-util text-[10px] uppercase tracking-wider text-accent space-x-2">
-                        <span>Confirm?</span>
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          className="underline hover:text-ink cursor-pointer font-bold"
-                        >
-                          Yes
-                        </button>
-                        <span className="text-line">/</span>
-                        <button
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="underline hover:text-ink cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                      </span>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => handleOpenEdit(item)}
-                          className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteId(item.id)}
-                          className="font-util text-[10px] uppercase tracking-wider text-accent hover:text-ink cursor-pointer underline"
-                        >
-                          Delete
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="p-8 text-center font-body text-xs italic text-ink-soft">
-            No articles exist in the database.
-          </div>
-        )}
-      </div>
+      {toast && <AdminToast message={toast.msg} type={toast.type} onDismiss={() => setToast(null)} />}
 
-      {/* Pagination */}
-      {(hasMore || cursorHistory.length > 1) && (
-        <div className="flex justify-center pt-4">
-          <CursorPagination
-            hasMore={hasMore}
-            hasPrevious={cursorHistory.length > 1}
-            onNext={handleNext}
-            onPrevious={handlePrevious}
-          />
-        </div>
-      )}
-
-      {/* Drawer Overlay Backdrop */}
-      {isDrawerOpen && (
-        <div
-          onClick={() => setIsDrawerOpen(false)}
-          className="fixed inset-0 z-40 bg-paper/60 backdrop-blur-xs transition-opacity"
-        />
-      )}
-
-      {/* Drawer Side Panel */}
-      <div
-        className={`fixed top-0 right-0 z-50 h-screen w-full max-w-lg border-l border-line bg-paper-2 p-6 overflow-y-auto transform transition-transform duration-300 ${
-          isDrawerOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
-        <div className="flex justify-between items-center border-b border-line pb-3 mb-6">
-          <h2 className="font-display text-body font-semibold text-ink">
-            {editItem ? "Edit Article" : "Write Article"}
-          </h2>
-          <button
-            onClick={() => setIsDrawerOpen(false)}
-            className="font-util text-eyebrow uppercase tracking-wider hover:text-accent cursor-pointer text-xs"
+      {/* Search + filter */}
+      <AdminSearchBar
+        value={search}
+        onChange={setSearch}
+        placeholder="Search by title, excerpt, or author..."
+        extra={
+          <select value={domainFilter} onChange={(e) => setDomainFilter(e.target.value)}
+            className="border border-line bg-paper px-3 py-2 text-[10px] font-util uppercase tracking-wider outline-none focus:border-accent transition-colors flex-shrink-0"
           >
-            Close [×]
-          </button>
+            <option value="all">All Domains</option>
+            {domains.map((d) => (<option key={d.slug} value={d.slug}>{d.name}</option>))}
+          </select>
+        }
+      />
+
+      {/* Table */}
+      <AdminTable columns={["Title", "Author", "Domain", "Reading", "Likes", "Published", "Actions"]} loading={loading} empty="No articles match your filters.">
+        {items.map((item) => (
+          <tr key={item.id} className="hover:bg-paper-2 transition-colors">
+            <td className="p-4 max-w-xs">
+              <p className="font-display font-medium text-ink truncate">{item.title}</p>
+              <p className="font-util text-[9px] text-ink-soft mt-0.5 truncate">{item.slug}</p>
+            </td>
+            <td className="p-4">
+              <p className="font-display text-xs text-ink">{item.author?.name ?? "—"}</p>
+              <p className="font-util text-[9px] text-ink-soft uppercase tracking-wider">{item.author?.department?.split(" ")[0] || item.author?.role || ""}</p>
+            </td>
+            <td className="p-4 font-util text-[10px] text-ink-soft uppercase tracking-wider whitespace-nowrap">{item.domain?.name ?? "General"}</td>
+            <td className="p-4 font-util text-[10px] text-ink-soft whitespace-nowrap">{item.readingMinutes} min</td>
+            <td className="p-4 font-util text-[10px] text-ink-soft">♥ {item.likes}</td>
+            <td className="p-4 font-util text-[10px] text-ink-soft whitespace-nowrap">{fmt(item.publishedAt)}</td>
+            <td className="p-4 text-right whitespace-nowrap">
+              {confirmDeleteId === item.id ? (
+                <span className="font-util text-[10px] uppercase tracking-wider text-red-600 space-x-2">
+                  <span>Delete?</span>
+                  <button onClick={() => handleDelete(item.id)} className="underline cursor-pointer font-bold">Yes</button>
+                  <span className="text-line">/</span>
+                  <button onClick={() => setConfirmDeleteId(null)} className="underline cursor-pointer text-ink">No</button>
+                </span>
+              ) : (
+                <>
+                  <button onClick={() => openEdit(item)} className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline transition-colors">Edit</button>
+                  <button onClick={() => setConfirmDeleteId(item.id)} className="font-util text-[10px] uppercase tracking-wider text-red-500 hover:text-ink cursor-pointer underline ml-3 transition-colors">Delete</button>
+                </>
+              )}
+            </td>
+          </tr>
+        ))}
+      </AdminTable>
+
+      {(hasMore || cursorHistory.length > 1) && (
+        <div className="flex justify-center pt-2">
+          <CursorPagination hasMore={hasMore} hasPrevious={cursorHistory.length > 1} onNext={handleNext} onPrevious={handlePrevious} />
         </div>
+      )}
 
-        <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
-          {/* Title */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              Article Title *
-            </label>
-            <input
-              type="text"
-              required
-              value={title}
-              onChange={(e) => {
-                setTitle(e.target.value);
-                if (!editItem) {
-                  setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""));
-                }
-              }}
-              placeholder="e.g. Building retrieval systems with local embeddings"
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-            />
-          </div>
-
-          {/* Slug */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              URL Slug *
-            </label>
-            <input
-              type="text"
-              required
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-mono"
-            />
-          </div>
-
-          {/* Domain */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              Academic Domain *
-            </label>
-            <select
-              value={domainSlug}
-              onChange={(e) => setDomainSlug(e.target.value)}
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-util uppercase tracking-wider"
-            >
-              {domains.map((d) => (
-                <option key={d.slug} value={d.slug}>
-                  {d.name}
-                </option>
-              ))}
+      {/* Drawer */}
+      <AdminDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} title={editItem ? "Edit Article" : "Write New Article"}>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <AdminField label="Article Title" required>
+            <input type="text" required value={title}
+              onChange={(e) => { setTitle(e.target.value); if (!editItem) setSlug(toSlug(e.target.value)); }}
+              placeholder="e.g. Building retrieval systems with local embeddings" className={adminInputCls} />
+          </AdminField>
+          <AdminField label="URL Slug" required hint="Auto-generated; edit freely">
+            <input type="text" required value={slug} onChange={(e) => setSlug(e.target.value)} className={`${adminInputCls} font-mono`} />
+          </AdminField>
+          <AdminField label="Academic Domain" required>
+            <select value={domainSlug} onChange={(e) => setDomainSlug(e.target.value)} className={adminSelectCls}>
+              {domains.map((d) => <option key={d.slug} value={d.slug}>{d.name}</option>)}
             </select>
-          </div>
+          </AdminField>
 
-          {/* Author Block */}
-          <div className="border border-line bg-paper p-4 space-y-3">
-            <h4 className="font-util text-eyebrow text-ink uppercase tracking-wider border-b border-line pb-1">
-              Author Metadata
-            </h4>
+          {/* Author block */}
+          <div className="border border-line bg-paper-2 p-4 space-y-3 rounded-sm">
+            <p className="font-util text-[9px] uppercase tracking-widest text-ink-soft border-b border-line pb-2">Author Details</p>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                  Author Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={authorName}
-                  onChange={(e) => setAuthorName(e.target.value)}
-                  placeholder="e.g. Jane Doe"
-                  className="w-full border border-line bg-paper-2 px-2.5 py-1.5 outline-none focus:border-ink"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                  Author Role
-                </label>
-                <input
-                  type="text"
-                  value={authorRole}
-                  onChange={(e) => setAuthorRole(e.target.value)}
-                  placeholder="e.g. Student Author"
-                  className="w-full border border-line bg-paper-2 px-2.5 py-1.5 outline-none focus:border-ink"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                  Department
-                </label>
-                <input
-                  type="text"
-                  value={authorDept}
-                  onChange={(e) => setAuthorDept(e.target.value)}
-                  placeholder="e.g. AI & DS"
-                  className="w-full border border-line bg-paper-2 px-2.5 py-1.5 outline-none focus:border-ink"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                  Avatar Image URL
-                </label>
-                <input
-                  type="text"
-                  value={authorAvatar}
-                  onChange={(e) => setAuthorAvatar(e.target.value)}
-                  placeholder="Paste URL"
-                  className="w-full border border-line bg-paper-2 px-2.5 py-1.5 outline-none focus:border-ink"
-                />
-              </div>
+              <AdminField label="Author Name" required>
+                <input type="text" required value={authorName} onChange={(e) => setAuthorName(e.target.value)} placeholder="Jane Doe" className={adminInputCls} />
+              </AdminField>
+              <AdminField label="Author Role">
+                <input type="text" value={authorRole} onChange={(e) => setAuthorRole(e.target.value)} placeholder="Student Author" className={adminInputCls} />
+              </AdminField>
+              <AdminField label="Department">
+                <input type="text" value={authorDept} onChange={(e) => setAuthorDept(e.target.value)} placeholder="AI & DS" className={adminInputCls} />
+              </AdminField>
+              <AdminField label="Avatar URL">
+                <input type="text" value={authorAvatar} onChange={(e) => setAuthorAvatar(e.target.value)} placeholder="https://..." className={adminInputCls} />
+              </AdminField>
             </div>
           </div>
 
-          {/* Excerpt */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              Short Excerpt (Plain Text)
-            </label>
-            <input
-              type="text"
-              value={excerpt}
-              onChange={(e) => setExcerpt(e.target.value)}
-              placeholder="Provide a one-sentence summary for feeds..."
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-            />
-          </div>
-
-          {/* Body (HTML Text) */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              Body Content (HTML Allowed)
-            </label>
-            <textarea
-              rows={8}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="<p>Write your article paragraphs here...</p>"
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-mono resize-y text-[11px]"
-            />
-          </div>
-
-          {/* Cover Image */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              Cover Image URL
-            </label>
-            <input
-              type="text"
-              value={cover}
-              onChange={(e) => setCover(e.target.value)}
-              placeholder="Paste cover photo URL"
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-            />
-          </div>
-
-          {/* Tags */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              Tags (Comma-Separated)
-            </label>
-            <input
-              type="text"
-              value={tagsCsv}
-              onChange={(e) => setTagsCsv(e.target.value)}
-              placeholder="RAG, Systems, Database"
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-            />
-          </div>
-
-          {/* Published At & Reading Time */}
+          <AdminField label="Short Excerpt">
+            <input type="text" value={excerpt} onChange={(e) => setExcerpt(e.target.value)} placeholder="One-sentence summary..." className={adminInputCls} />
+          </AdminField>
+          <AdminField label="Body Content (HTML allowed)" hint="Wrap paragraphs in <p> tags">
+            <textarea rows={8} value={body} onChange={(e) => setBody(e.target.value)} placeholder="<p>Write your article content here...</p>" className={adminTextareaCls} />
+          </AdminField>
+          <AdminField label="Cover Image URL">
+            <input type="text" value={cover} onChange={(e) => setCover(e.target.value)} placeholder="Paste image URL" className={adminInputCls} />
+            {cover && (
+              <div className="mt-2 border border-line h-24 bg-paper-2 overflow-hidden">
+                <img src={cover} alt="preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              </div>
+            )}
+          </AdminField>
+          <AdminField label="Tags (comma-separated)">
+            <input type="text" value={tagsCsv} onChange={(e) => setTagsCsv(e.target.value)} placeholder="RAG, Systems, Database" className={adminInputCls} />
+          </AdminField>
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                Publish Date *
-              </label>
-              <input
-                type="datetime-local"
-                required
-                value={publishedAt}
-                onChange={(e) => setPublishedAt(e.target.value)}
-                className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                Reading Minutes
-              </label>
-              <input
-                type="number"
-                min={1}
-                required
-                value={readingMinutes}
-                onChange={(e) => setReadingMinutes(Number(e.target.value))}
-                className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-              />
-            </div>
+            <AdminField label="Publish Date" required>
+              <input type="datetime-local" required value={publishedAt} onChange={(e) => setPublishedAt(e.target.value)} className={adminInputCls} />
+            </AdminField>
+            <AdminField label="Reading Minutes">
+              <input type="number" min={1} required value={readingMinutes} onChange={(e) => setReadingMinutes(Number(e.target.value))} className={adminInputCls} />
+            </AdminField>
           </div>
 
-          {/* Form Error */}
-          {formError && (
-            <p className="font-util text-[10px] text-accent uppercase tracking-wider">
-              {formError}
-            </p>
-          )}
+          {formError && <p className="font-util text-[10px] text-red-600 uppercase tracking-wider border border-red-200 bg-red-50 px-3 py-2">⚠ {formError}</p>}
 
-          {/* Actions */}
-          <div className="flex gap-4 pt-4 border-t border-line">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="flex-1 font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent border border-ink py-2 cursor-pointer disabled:opacity-50"
-            >
-              {submitting ? "Saving..." : "Save Record"}
+          <div className="flex gap-3 pt-3 border-t border-line">
+            <button type="submit" disabled={submitting} className="flex-1 font-util text-[10px] uppercase tracking-wider text-paper bg-accent hover:opacity-90 py-2.5 cursor-pointer disabled:opacity-50 transition-opacity">
+              {submitting ? "Saving..." : editItem ? "Update Article" : "Publish Article"}
             </button>
-            <button
-              type="button"
-              onClick={() => setIsDrawerOpen(false)}
-              className="flex-1 font-util text-eyebrow uppercase tracking-wider text-ink border border-line hover:bg-paper py-2 cursor-pointer"
-            >
+            <button type="button" onClick={() => setDrawerOpen(false)} className="flex-1 font-util text-[10px] uppercase tracking-wider text-ink border border-line hover:border-accent py-2.5 cursor-pointer transition-colors">
               Cancel
             </button>
           </div>
         </form>
-      </div>
+      </AdminDrawer>
     </div>
   );
 }

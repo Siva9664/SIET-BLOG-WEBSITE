@@ -10,13 +10,14 @@ export default function AdminLoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
-      setError("Please specify email and password credentials.");
+      setError("Please provide both email and password.");
       return;
     }
 
@@ -24,27 +25,26 @@ export default function AdminLoginPage() {
     setLoading(true);
 
     try {
-      await api.login({ email, password });
-      // Redirect to the auth-gated admin workspace
+      await api.login({ email: email.trim(), password });
+      router.refresh();
       router.push("/admin");
     } catch (err: any) {
       console.error("Login failure:", err);
-      setError("Authentication failed. Please verify credentials.");
-    } finally {
+      setError(err?.message ? `Authentication failed: ${err.message}` : "Invalid email or password.");
       setLoading(false);
     }
   };
 
   return (
     <main className="min-h-screen bg-paper flex flex-col justify-center items-center px-4 py-12">
-      <div className="w-full max-w-md border border-line bg-paper-2 p-8 space-y-6">
+      <div className="w-full max-w-md border border-line bg-paper-2 p-8 space-y-6 shadow-sm">
         {/* Header */}
         <div className="text-center space-y-2">
           <p className="font-util text-eyebrow text-accent uppercase tracking-widest">
-            siet news archive
+            SIET Editorial Workspace
           </p>
           <h1 className="font-display text-h2 font-semibold text-ink leading-tight">
-            Admin Portal
+            Admin Authentication
           </h1>
         </div>
 
@@ -61,7 +61,7 @@ export default function AdminLoginPage() {
             <input
               id="login-email"
               type="email"
-              placeholder="editor@example.com"
+              placeholder="admin@siet.ac.in"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -71,15 +71,24 @@ export default function AdminLoginPage() {
 
           {/* Password */}
           <div className="space-y-1.5">
-            <label
-              htmlFor="login-password"
-              className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider"
-            >
-              Password
-            </label>
+            <div className="flex justify-between items-center">
+              <label
+                htmlFor="login-password"
+                className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider"
+              >
+                Password
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="font-util text-[10px] text-ink-soft hover:text-ink uppercase tracking-wider transition-colors"
+              >
+                {showPassword ? "Hide" : "Show"} Password
+              </button>
+            </div>
             <input
               id="login-password"
-              type="password"
+              type={showPassword ? "text" : "password"}
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -90,7 +99,7 @@ export default function AdminLoginPage() {
 
           {/* Error Message */}
           {error && (
-            <div className="text-left font-util text-[11px] text-accent uppercase tracking-wider">
+            <div className="text-left font-util text-[11px] text-accent uppercase tracking-wider bg-rose-50/50 p-2.5 border border-rose-200">
               {error}
             </div>
           )}

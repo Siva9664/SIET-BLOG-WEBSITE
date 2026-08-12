@@ -11,16 +11,37 @@ interface AdminSidebarProps {
   user: User;
 }
 
-const NAV_ITEMS = [
-  { label: "Dashboard", href: "/admin" },
-  { label: "News Records", href: "/admin/news" },
-  { label: "Articles Desk", href: "/admin/articles" },
-  { label: "Magazine Wins", href: "/admin/magazine" },
-  { label: "Media Library", href: "/admin/media" },
-  { label: "Domains List", href: "/admin/domains" },
-  { label: "User Access", href: "/admin/users" },
-  { label: "Analytics Log", href: "/admin/analytics" },
-  { label: "System Settings", href: "/admin/settings" },
+const NAV_SECTIONS = [
+  {
+    label: "Overview",
+    items: [
+      { label: "Dashboard", href: "/admin", icon: "⬛", badge: null },
+      { label: "Analytics", href: "/admin/analytics", icon: "📊", badge: null },
+    ],
+  },
+  {
+    label: "Content",
+    items: [
+      { label: "News Records", href: "/admin/news", icon: "📰", badge: null },
+      { label: "Articles Desk", href: "/admin/articles", icon: "📄", badge: null },
+      { label: "Magazine Wins", href: "/admin/magazine", icon: "🏆", badge: null },
+      { label: "Media Library", href: "/admin/media", icon: "🖼️", badge: null },
+    ],
+  },
+  {
+    label: "Taxonomy",
+    items: [
+      { label: "Domains List", href: "/admin/domains", icon: "🗂️", badge: null },
+      { label: "Tags Directory", href: "/admin/tags", icon: "🏷️", badge: null },
+    ],
+  },
+  {
+    label: "Administration",
+    items: [
+      { label: "User Access", href: "/admin/users", icon: "👥", badge: null },
+      { label: "System Settings", href: "/admin/settings", icon: "⚙️", badge: null },
+    ],
+  },
 ];
 
 export function AdminSidebar({ user }: AdminSidebarProps) {
@@ -49,6 +70,18 @@ export function AdminSidebar({ user }: AdminSidebarProps) {
     setIsOpen(false);
   }, [pathname]);
 
+  const isActive = (href: string) => {
+    if (href === "/admin") return pathname === "/admin";
+    return pathname.startsWith(href);
+  };
+
+  const initials = user.name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+
   return (
     <>
       {/* Mobile Toggle Button */}
@@ -74,60 +107,99 @@ export function AdminSidebar({ user }: AdminSidebarProps) {
         ${isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
       `}>
         {/* Top section: Brand & Navigation */}
-        <div className="flex flex-col">
+        <div className="flex flex-col overflow-y-auto flex-1">
           {/* Brand Header */}
-          <div className="p-6 border-b border-line">
-            <Link href="/admin" className="font-display text-body font-semibold text-ink lowercase tracking-normal flex items-center gap-2 outline-none focus:outline-2 focus:outline-accent">
-              <TransparentLogo
-                src="/api/logo"
-                alt="SIET Logo"
-                width={24}
-                height={24}
-                className="w-6 h-6 object-contain"
-              />
-              <span>siet news admin</span>
+          <div className="p-5 border-b border-line flex-shrink-0">
+            <Link href="/admin" className="font-display text-body font-semibold text-ink normal-case tracking-normal flex items-center gap-2.5 outline-none focus:outline-2 focus:outline-accent group">
+              <div className="w-8 h-8 bg-accent flex items-center justify-center flex-shrink-0 group-hover:bg-ink transition-colors duration-200">
+                <TransparentLogo
+                  src="/api/logo"
+                  alt="SIET Logo"
+                  width={20}
+                  height={20}
+                  className="w-5 h-5 object-contain invert"
+                />
+              </div>
+              <div className="min-w-0">
+                <p className="font-display text-sm font-semibold text-ink leading-none truncate">SIET Admin</p>
+                <p className="font-util text-[9px] text-ink-soft uppercase tracking-wider mt-0.5">Management Console</p>
+              </div>
             </Link>
-            <span className="text-[10px] text-ink-soft block mt-1">Management Desk</span>
           </div>
 
-          {/* Navigation list */}
-          <nav className="p-4 space-y-1">
-            {NAV_ITEMS.map((item) => {
-              const isActive = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`block px-3 py-2 border transition-colors outline-none focus:outline-2 focus:outline-accent ${
-                    isActive
-                      ? "bg-ink text-paper border-ink"
-                      : "border-transparent hover:border-line hover:bg-paper"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
+          {/* Navigation by section */}
+          <nav className="flex-1 py-4 px-3 space-y-5">
+            {NAV_SECTIONS.map((section) => (
+              <div key={section.label}>
+                <p className="font-util text-[9px] text-ink-soft uppercase tracking-widest px-2 mb-1.5">
+                  {section.label}
+                </p>
+                <div className="space-y-0.5">
+                  {section.items.map((item) => {
+                    const active = isActive(item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className={`flex items-center gap-2.5 px-3 py-2 text-[11px] border transition-all duration-150 outline-none focus:outline-2 focus:outline-accent rounded-sm ${
+                          active
+                            ? "bg-accent text-paper border-accent shadow-sm"
+                            : "border-transparent text-ink hover:border-line hover:bg-paper hover:text-accent"
+                        }`}
+                      >
+                        <span className="text-xs leading-none opacity-70" role="img" aria-hidden="true">
+                          {item.icon}
+                        </span>
+                        <span className="flex-1 truncate normal-case tracking-normal font-medium">{item.label}</span>
+                        {active && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-paper/60 flex-shrink-0" />
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </nav>
+
+          {/* View Public Site Link */}
+          <div className="px-3 pb-3">
+            <Link
+              href="/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-3 py-2 border border-dashed border-line text-[10px] uppercase tracking-wider text-ink-soft hover:text-accent hover:border-accent transition-colors normal-case"
+            >
+              <span className="text-xs" role="img" aria-hidden="true">↗</span>
+              <span className="tracking-wider">View Public Site</span>
+            </Link>
+          </div>
         </div>
 
         {/* Bottom section: User Info & Logout */}
-        <div className="p-4 border-t border-line space-y-4">
+        <div className="border-t border-line p-3 space-y-2 flex-shrink-0">
           {/* User Card */}
-          <div className="px-3 py-2 border border-line bg-paper">
-            <p className="font-display font-medium text-ink normal-case tracking-normal truncate">
-              {user.name}
-            </p>
-            <p className="text-[9px] text-ink-soft mt-0.5">{user.role}</p>
+          <div className="flex items-center gap-2.5 px-2 py-2">
+            <div className="w-8 h-8 bg-ink text-paper flex items-center justify-center text-[10px] font-util font-bold flex-shrink-0">
+              {initials}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-display font-medium text-ink text-xs normal-case tracking-normal truncate leading-tight">
+                {user.name}
+              </p>
+              <p className="font-util text-[9px] text-ink-soft uppercase tracking-wider truncate mt-0.5">
+                {user.role}
+              </p>
+            </div>
           </div>
 
           {/* Logout Button */}
           <button
             onClick={handleLogout}
             disabled={loggingOut}
-            className="w-full text-left px-3 py-2 border border-line hover:border-accent hover:text-accent transition-colors cursor-pointer bg-paper outline-none focus:outline-2 focus:outline-accent"
+            className="w-full text-left px-3 py-2 border border-line hover:border-accent hover:text-accent transition-colors cursor-pointer bg-paper outline-none focus:outline-2 focus:outline-accent text-[10px] uppercase tracking-wider normal-case disabled:opacity-50"
           >
-            {loggingOut ? "Logging out..." : "Log Out"}
+            {loggingOut ? "⏳ Logging out..." : "→ Log Out"}
           </button>
         </div>
       </aside>

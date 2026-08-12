@@ -1,12 +1,23 @@
 "use client";
 
 import * as React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { api } from "@/lib/api";
 import { CursorPagination } from "@/components/shared";
+import {
+  AdminDrawer,
+  AdminTable,
+  AdminField,
+  AdminSearchBar,
+  AdminToast,
+  AdminEmptyState,
+  adminInputCls,
+  adminTextareaCls,
+  adminSelectCls,
+} from "@/components/admin/AdminShared";
 import type { NewsItem, Domain } from "@/lib/types";
 
-// Fallbacks
+// ─── Fallbacks ───────────────────────────────────────────────────────────────
 const FALLBACK_DOMAINS: Domain[] = [
   { slug: "machine-learning", name: "Machine Learning", count: 42 },
   { slug: "robotics", name: "Robotics", count: 19 },
@@ -19,12 +30,14 @@ const FALLBACK_NEWS: NewsItem[] = [
     id: "n1",
     slug: "open-models-campus-lab",
     title: "Open models shape a new week of student experiments",
-    aiSummary: "The lab tracked model releases, classroom prototypes, and a practical discussion on evaluation methods for student-built systems.",
+    aiSummary:
+      "The lab tracked model releases, classroom prototypes, and a practical discussion on evaluation methods for student-built systems.",
     sourceUrl: "https://example.com",
     sourceName: "AI Research Desk",
     domain: FALLBACK_DOMAINS[0],
     tags: [{ slug: "models", name: "Models" }],
-    image: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=900&q=80",
+    image:
+      "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=900&q=80",
     publishedAt: "2026-07-08T10:00:00.000Z",
     trending: true,
     likes: 87,
@@ -33,19 +46,38 @@ const FALLBACK_NEWS: NewsItem[] = [
     id: "n2",
     slug: "robotics-navigation-updates",
     title: "Robotics team publishes indoor navigation benchmark",
-    aiSummary: "Initial testing of LiDAR slam shows consistent map resolution under varied department lighting conditions.",
+    aiSummary:
+      "Initial testing of LiDAR slam shows consistent map resolution under varied department lighting conditions.",
     sourceUrl: "https://example.com",
     sourceName: "Robotics Press",
     domain: FALLBACK_DOMAINS[1],
     tags: [{ slug: "navigation", name: "Navigation" }],
-    image: "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=900&q=80",
+    image:
+      "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=900&q=80",
     publishedAt: "2026-07-07T14:30:00.000Z",
     likes: 42,
   },
 ];
 
+// ─── Helper ──────────────────────────────────────────────────────────────────
+function toSlug(str: string) {
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function fmt(iso: string) {
+  return new Date(iso).toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
 export default function AdminNewsCRUDPage() {
-  const [items, setItems] = useState<NewsItem[]>([]);
+  const [allItems, setAllItems] = useState<NewsItem[]>([]);
   const [domains, setDomains] = useState<Domain[]>(FALLBACK_DOMAINS);
   const [cursor, setCursor] = useState<string | null>(null);
   const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([null]);
@@ -53,13 +85,19 @@ export default function AdminNewsCRUDPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Drawer / Form State
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  // Search + Filter
+  const [search, setSearch] = useState("");
+  const [domainFilter, setDomainFilter] = useState("all");
+  const [trendingFilter, setTrendingFilter] = useState<"all" | "yes" | "no">("all");
+
+  // Drawer
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [editItem, setEditItem] = useState<NewsItem | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" | "info" } | null>(null);
 
-  // Form Fields
+  // Form fields
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
   const [aiSummary, setAiSummary] = useState("");
@@ -70,20 +108,39 @@ export default function AdminNewsCRUDPage() {
   const [publishedAt, setPublishedAt] = useState("");
   const [trending, setTrending] = useState(false);
 
-  // Delete Confirm ID
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [fetchingLive, setFetchingLive] = useState(false);
 
-  // Load Data
-  const loadNews = async (currentCursor: string | null) => {
+  // ── Filtered items ──────────────────────────────────────────────────────
+  const items = useMemo(() => {
+    let list = allItems;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (i) =>
+          i.title.toLowerCase().includes(q) ||
+          i.aiSummary?.toLowerCase().includes(q) ||
+          i.sourceName?.toLowerCase().includes(q)
+      );
+    }
+    if (domainFilter !== "all") {
+      list = list.filter((i) => i.domain?.slug === domainFilter);
+    }
+    if (trendingFilter === "yes") list = list.filter((i) => i.trending);
+    if (trendingFilter === "no") list = list.filter((i) => !i.trending);
+    return list;
+  }, [allItems, search, domainFilter, trendingFilter]);
+
+  // ── Load ────────────────────────────────────────────────────────────────
+  const loadNews = async (cur: string | null) => {
     setLoading(true);
     try {
-      const res = await api.adminNews(currentCursor ? `?cursor=${currentCursor}` : "");
-      setItems(res.items);
+      const res = await api.adminNews(cur ? `?cursor=${cur}` : "");
+      setAllItems(res.items);
       setHasMore(res.pageInfo.has_more);
       setNextCursor(res.pageInfo.next_cursor);
-    } catch (err) {
-      console.warn("Admin news API offline, loading static news mock fallbacks.", err);
-      setItems(FALLBACK_NEWS);
+    } catch {
+      setAllItems(FALLBACK_NEWS);
       setHasMore(false);
       setNextCursor(null);
     } finally {
@@ -91,50 +148,56 @@ export default function AdminNewsCRUDPage() {
     }
   };
 
+  useEffect(() => { loadNews(cursor); }, [cursor]);
+  useEffect(() => {
+    api.domains().then(setDomains).catch(() => setDomains(FALLBACK_DOMAINS));
+  }, []);
+
+  const showToast = (msg: string, type: "success" | "error" | "info" = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 5000);
+  };
+
+  // ── Pagination ──────────────────────────────────────────────────────────
   const handleNext = () => {
     if (nextCursor) {
-      setCursorHistory((prev) => [...prev, nextCursor]);
+      setCursorHistory((h) => [...h, nextCursor]);
       setCursor(nextCursor);
     }
   };
-
   const handlePrevious = () => {
     if (cursorHistory.length > 1) {
-      const newHistory = cursorHistory.slice(0, -1);
-      const prevCursor = newHistory[newHistory.length - 1];
-      setCursorHistory(newHistory);
-      setCursor(prevCursor);
+      const h = cursorHistory.slice(0, -1);
+      setCursorHistory(h);
+      setCursor(h[h.length - 1]);
     }
   };
 
-  useEffect(() => {
-    loadNews(cursor);
-  }, [cursor]);
-
-  useEffect(() => {
-    api.domains()
-      .then(setDomains)
-      .catch(() => setDomains(FALLBACK_DOMAINS));
-  }, []);
-
-  // Open Drawer for Create
-  const handleOpenCreate = () => {
-    setEditItem(null);
-    setTitle("");
-    setSlug("");
-    setAiSummary("");
-    setSourceName("");
-    setSourceUrl("");
-    setDomainSlug(domains[0]?.slug || "");
-    setImage("");
-    setPublishedAt(new Date().toISOString().substring(0, 16));
-    setTrending(false);
-    setFormError(null);
-    setIsDrawerOpen(true);
+  // ── Trigger live fetch ──────────────────────────────────────────────────
+  const handleTrigger = async () => {
+    setFetchingLive(true);
+    try {
+      const res = await api.adminTriggerNewsFetch();
+      showToast(res.message || "Live news ingestion completed.", "success");
+      loadNews(cursor);
+    } catch {
+      showToast("Trigger sent — refreshing stream.", "info");
+      loadNews(cursor);
+    } finally {
+      setFetchingLive(false);
+    }
   };
 
-  // Open Drawer for Edit
-  const handleOpenEdit = (item: NewsItem) => {
+  // ── Open drawer ─────────────────────────────────────────────────────────
+  const openCreate = () => {
+    setEditItem(null);
+    setTitle(""); setSlug(""); setAiSummary(""); setSourceName(""); setSourceUrl("");
+    setDomainSlug(domains[0]?.slug || ""); setImage("");
+    setPublishedAt(new Date().toISOString().substring(0, 16)); setTrending(false);
+    setFormError(null); setDrawerOpen(true);
+  };
+
+  const openEdit = (item: NewsItem) => {
     setEditItem(item);
     setTitle(item.title);
     setSlug(item.slug);
@@ -146,181 +209,191 @@ export default function AdminNewsCRUDPage() {
     setPublishedAt(new Date(item.publishedAt).toISOString().substring(0, 16));
     setTrending(!!item.trending);
     setFormError(null);
-    setIsDrawerOpen(true);
+    setDrawerOpen(true);
   };
 
-  // Submit Drawer Form
-  const handleFormSubmit = async (e: React.FormEvent) => {
+  // ── Submit form ─────────────────────────────────────────────────────────
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !slug || !domainSlug) {
-      setFormError("Title, Slug, and Domain fields are required.");
+      setFormError("Title, Slug, and Domain are required.");
       return;
     }
-
     setSubmitting(true);
     setFormError(null);
-
     const activeDomain = domains.find((d) => d.slug === domainSlug) || FALLBACK_DOMAINS[0];
-
     const payload = {
-      title,
-      slug,
-      aiSummary,
-      sourceName,
-      sourceUrl,
-      domain: activeDomain,
-      image,
-      publishedAt: new Date(publishedAt).toISOString(),
-      trending,
+      title, slug, aiSummary, sourceName, sourceUrl,
+      domain: activeDomain, image,
+      publishedAt: new Date(publishedAt).toISOString(), trending,
     };
-
     try {
       if (editItem) {
         await api.adminNewsUpdate(editItem.id, payload);
+        showToast("News item updated successfully.", "success");
       } else {
         await api.adminNewsCreate(payload);
+        showToast("News item created successfully.", "success");
       }
-      setIsDrawerOpen(false);
+      setDrawerOpen(false);
       loadNews(cursor);
-    } catch (err) {
-      console.error("Save failure:", err);
-      // Client-side local fallback update to simulate saves offline
-      const mockSavedItem: NewsItem = {
-        id: editItem?.id || `n-mock-${Date.now()}`,
+    } catch {
+      // Offline fallback
+      const mock: NewsItem = {
+        id: editItem?.id || `n-${Date.now()}`,
         ...payload,
         likes: editItem?.likes || 0,
-        tags: editItem?.tags || [{ slug: "general", name: "General" }],
+        tags: editItem?.tags || [],
       };
-
       if (editItem) {
-        setItems(items.map((i) => (i.id === editItem.id ? mockSavedItem : i)));
+        setAllItems((prev) => prev.map((i) => (i.id === editItem.id ? mock : i)));
       } else {
-        setItems([mockSavedItem, ...items]);
+        setAllItems((prev) => [mock, ...prev]);
       }
-      setIsDrawerOpen(false);
+      showToast("Saved locally (API offline).", "info");
+      setDrawerOpen(false);
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Handle Delete
+  // ── Delete ──────────────────────────────────────────────────────────────
   const handleDelete = async (id: string) => {
     try {
       await api.adminNewsDelete(id);
       loadNews(cursor);
-    } catch (err) {
-      console.warn("Delete call failed. Applying offline item removal.", err);
-      setItems(items.filter((i) => i.id !== id));
+      showToast("News item deleted.", "success");
+    } catch {
+      setAllItems((prev) => prev.filter((i) => i.id !== id));
+      showToast("Removed locally (API offline).", "info");
     } finally {
       setConfirmDeleteId(null);
     }
   };
 
   return (
-    <div className="space-y-6 relative min-h-[80vh]">
-      {/* Page Header */}
-      <div className="flex justify-between items-end border-b border-line pb-4">
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-line pb-4">
         <div>
-          <p className="font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-            editorial console
+          <p className="font-util text-[10px] text-ink-soft uppercase tracking-widest">
+            Editorial Console
           </p>
           <h1 className="font-display text-h2 font-semibold text-ink mt-1">
             News Releases
           </h1>
+          <p className="font-util text-[10px] text-ink-soft mt-1">
+            {allItems.length} total records · {items.length} shown
+          </p>
         </div>
-        <button
-          onClick={handleOpenCreate}
-          className="font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent border border-ink transition-colors px-4 py-2 cursor-pointer"
-        >
-          Add News Release
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleTrigger}
+            disabled={fetchingLive}
+            className="font-util text-[10px] uppercase tracking-wider text-ink bg-paper-2 hover:bg-paper border border-line px-4 py-2 cursor-pointer disabled:opacity-50 transition-colors flex items-center gap-2"
+          >
+            {fetchingLive ? "⏳ Fetching..." : "⚡ Trigger Live Fetch"}
+          </button>
+          <button
+            onClick={openCreate}
+            className="font-util text-[10px] uppercase tracking-wider text-paper bg-accent hover:opacity-90 border border-accent px-4 py-2 cursor-pointer transition-opacity"
+          >
+            + Add News
+          </button>
+        </div>
       </div>
 
-      {/* Main Table grid */}
-      <div className="border border-line bg-paper">
-        {loading ? (
-          <div className="p-8 text-center font-display text-xs italic text-ink-soft">
-            Querying news records...
-          </div>
-        ) : items.length > 0 ? (
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-line bg-paper-2 font-util text-[10px] text-ink-soft uppercase tracking-wider">
-                <th className="p-4 font-semibold">Title</th>
-                <th className="p-4 font-semibold">Domain</th>
-                <th className="p-4 font-semibold">Published</th>
-                <th className="p-4 font-semibold">Trending</th>
-                <th className="p-4 font-semibold text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {items.map((item) => (
-                <tr key={item.id} className="hover:bg-paper-2 transition-colors">
-                  <td className="p-4 font-display font-medium text-ink max-w-sm truncate">
-                    {item.title}
-                  </td>
-                  <td className="p-4 font-util text-ink-soft">{item.domain?.name ?? "General"}</td>
-                  <td className="p-4 font-sans text-ink-soft">
-                    {new Date(item.publishedAt).toLocaleDateString()}
-                  </td>
-                  <td className="p-4">
-                    {item.trending ? (
-                      <span className="font-util text-[9px] uppercase tracking-wider text-accent border border-accent/20 bg-accent/5 px-1.5 py-0.5">
-                        Yes
-                      </span>
-                    ) : (
-                      <span className="font-util text-[9px] text-ink-soft">—</span>
-                    )}
-                  </td>
-                  <td className="p-4 text-right space-x-3">
-                    {confirmDeleteId === item.id ? (
-                      <span className="font-util text-[10px] uppercase tracking-wider text-accent space-x-2">
-                        <span>Confirm?</span>
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          className="underline hover:text-ink cursor-pointer font-bold"
-                        >
-                          Yes
-                        </button>
-                        <span className="text-line">/</span>
-                        <button
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="underline hover:text-ink cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                      </span>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => handleOpenEdit(item)}
-                          className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteId(item.id)}
-                          className="font-util text-[10px] uppercase tracking-wider text-accent hover:text-ink cursor-pointer underline"
-                        >
-                          Delete
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
+      {/* Toast */}
+      {toast && (
+        <AdminToast message={toast.msg} type={toast.type} onDismiss={() => setToast(null)} />
+      )}
+
+      {/* Search + Filters */}
+      <AdminSearchBar
+        value={search}
+        onChange={setSearch}
+        placeholder="Search by title, summary, or source..."
+        extra={
+          <div className="flex gap-2 flex-shrink-0">
+            <select
+              value={domainFilter}
+              onChange={(e) => setDomainFilter(e.target.value)}
+              className="border border-line bg-paper px-3 py-2 text-[10px] font-util uppercase tracking-wider outline-none focus:border-accent transition-colors"
+            >
+              <option value="all">All Domains</option>
+              {domains.map((d) => (
+                <option key={d.slug} value={d.slug}>{d.name}</option>
               ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="p-8 text-center font-body text-xs italic text-ink-soft">
-            No news entries exist in the database.
+            </select>
+            <select
+              value={trendingFilter}
+              onChange={(e) => setTrendingFilter(e.target.value as any)}
+              className="border border-line bg-paper px-3 py-2 text-[10px] font-util uppercase tracking-wider outline-none focus:border-accent transition-colors"
+            >
+              <option value="all">All Items</option>
+              <option value="yes">Trending Only</option>
+              <option value="no">Non-Trending</option>
+            </select>
           </div>
-        )}
-      </div>
+        }
+      />
+
+      {/* Table */}
+      <AdminTable
+        columns={["Title", "Domain", "Source", "Published", "Trending", "Actions"]}
+        loading={loading}
+        empty="No news entries match your filters."
+      >
+        {items.map((item) => (
+          <tr key={item.id} className="hover:bg-paper-2 transition-colors">
+            <td className="p-4 max-w-xs">
+              <p className="font-display font-medium text-ink truncate">{item.title}</p>
+              <p className="font-util text-[9px] text-ink-soft mt-0.5 truncate">{item.slug}</p>
+            </td>
+            <td className="p-4 font-util text-[10px] text-ink-soft uppercase tracking-wider whitespace-nowrap">
+              {item.domain?.name ?? "General"}
+            </td>
+            <td className="p-4 font-util text-[10px] text-ink-soft truncate max-w-[120px]">
+              {item.sourceName || "—"}
+            </td>
+            <td className="p-4 font-util text-[10px] text-ink-soft whitespace-nowrap">
+              {fmt(item.publishedAt)}
+            </td>
+            <td className="p-4">
+              {item.trending ? (
+                <span className="font-util text-[9px] uppercase tracking-wider text-emerald-700 border border-emerald-300 bg-emerald-50 px-1.5 py-0.5">
+                  Trending
+                </span>
+              ) : (
+                <span className="font-util text-[9px] text-ink-soft">—</span>
+              )}
+            </td>
+            <td className="p-4 text-right whitespace-nowrap">
+              {confirmDeleteId === item.id ? (
+                <span className="font-util text-[10px] uppercase tracking-wider text-red-600 space-x-2">
+                  <span>Delete?</span>
+                  <button onClick={() => handleDelete(item.id)} className="underline cursor-pointer font-bold">Yes</button>
+                  <span className="text-line">/</span>
+                  <button onClick={() => setConfirmDeleteId(null)} className="underline cursor-pointer text-ink">No</button>
+                </span>
+              ) : (
+                <>
+                  <button onClick={() => openEdit(item)} className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline transition-colors">
+                    Edit
+                  </button>
+                  <button onClick={() => setConfirmDeleteId(item.id)} className="font-util text-[10px] uppercase tracking-wider text-red-500 hover:text-ink cursor-pointer underline ml-3 transition-colors">
+                    Delete
+                  </button>
+                </>
+              )}
+            </td>
+          </tr>
+        ))}
+      </AdminTable>
 
       {/* Pagination */}
       {(hasMore || cursorHistory.length > 1) && (
-        <div className="flex justify-center pt-4">
+        <div className="flex justify-center pt-2">
           <CursorPagination
             hasMore={hasMore}
             hasPrevious={cursorHistory.length > 1}
@@ -330,198 +403,88 @@ export default function AdminNewsCRUDPage() {
         </div>
       )}
 
-      {/* Drawer Overlay Backdrop */}
-      {isDrawerOpen && (
-        <div
-          onClick={() => setIsDrawerOpen(false)}
-          className="fixed inset-0 z-40 bg-paper/60 backdrop-blur-xs transition-opacity"
-        />
-      )}
-
-      {/* Drawer Side Panel */}
-      <div
-        className={`fixed top-0 right-0 z-50 h-screen w-full max-w-lg border-l border-line bg-paper-2 p-6 overflow-y-auto transform transition-transform duration-300 ${
-          isDrawerOpen ? "translate-x-0" : "translate-x-full"
-        }`}
+      {/* Drawer */}
+      <AdminDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        title={editItem ? "Edit News Release" : "New News Release"}
       >
-        <div className="flex justify-between items-center border-b border-line pb-3 mb-6">
-          <h2 className="font-display text-body font-semibold text-ink">
-            {editItem ? "Edit News Release" : "New News Release"}
-          </h2>
-          <button
-            onClick={() => setIsDrawerOpen(false)}
-            className="font-util text-eyebrow uppercase tracking-wider hover:text-accent cursor-pointer text-xs"
-          >
-            Close [×]
-          </button>
-        </div>
-
-        <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
-          {/* Title */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              News Title *
-            </label>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <AdminField label="News Title" required>
             <input
-              type="text"
-              required
-              value={title}
+              type="text" required value={title}
               onChange={(e) => {
                 setTitle(e.target.value);
-                if (!editItem) {
-                  setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""));
-                }
+                if (!editItem) setSlug(toSlug(e.target.value));
               }}
               placeholder="e.g. Robotics team calibrates LiDAR rigs"
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
+              className={adminInputCls}
             />
-          </div>
+          </AdminField>
 
-          {/* Slug */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              URL Slug *
-            </label>
-            <input
-              type="text"
-              required
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-mono"
-            />
-          </div>
+          <AdminField label="URL Slug" required hint="Auto-generated from title on create">
+            <input type="text" required value={slug} onChange={(e) => setSlug(e.target.value)} className={`${adminInputCls} font-mono`} />
+          </AdminField>
 
-          {/* Domain */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              Academic Domain *
-            </label>
-            <select
-              value={domainSlug}
-              onChange={(e) => setDomainSlug(e.target.value)}
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-util uppercase tracking-wider"
-            >
+          <AdminField label="Academic Domain" required>
+            <select value={domainSlug} onChange={(e) => setDomainSlug(e.target.value)} className={adminSelectCls}>
               {domains.map((d) => (
-                <option key={d.slug} value={d.slug}>
-                  {d.name}
-                </option>
+                <option key={d.slug} value={d.slug}>{d.name}</option>
               ))}
             </select>
-          </div>
+          </AdminField>
 
-          {/* AI Summary */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              AI Summary Block
-            </label>
-            <textarea
-              rows={4}
-              value={aiSummary}
-              onChange={(e) => setAiSummary(e.target.value)}
-              placeholder="Provide a concise editorial summary paragraph..."
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink resize-y"
-            />
-          </div>
+          <AdminField label="AI Summary">
+            <textarea rows={4} value={aiSummary} onChange={(e) => setAiSummary(e.target.value)} placeholder="Concise editorial summary..." className={adminTextareaCls} />
+          </AdminField>
 
-          {/* Source Info */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                Source Name
-              </label>
-              <input
-                type="text"
-                value={sourceName}
-                onChange={(e) => setSourceName(e.target.value)}
-                placeholder="e.g. AI Research Desk"
-                className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                Source URL
-              </label>
-              <input
-                type="url"
-                value={sourceUrl}
-                onChange={(e) => setSourceUrl(e.target.value)}
-                placeholder="https://example.com"
-                className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-              />
-            </div>
+            <AdminField label="Source Name">
+              <input type="text" value={sourceName} onChange={(e) => setSourceName(e.target.value)} placeholder="AI Research Desk" className={adminInputCls} />
+            </AdminField>
+            <AdminField label="Source URL">
+              <input type="url" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="https://..." className={adminInputCls} />
+            </AdminField>
           </div>
 
-          {/* Image Cover */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              Image URL
+          <AdminField label="Cover Image URL">
+            <input type="text" value={image} onChange={(e) => setImage(e.target.value)} placeholder="Paste image URL" className={adminInputCls} />
+            {image && (
+              <div className="mt-2 border border-line overflow-hidden h-24 bg-paper-2">
+                <img src={image} alt="preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              </div>
+            )}
+          </AdminField>
+
+          <div className="grid grid-cols-2 gap-4 items-end">
+            <AdminField label="Publish Date" required>
+              <input type="datetime-local" required value={publishedAt} onChange={(e) => setPublishedAt(e.target.value)} className={adminInputCls} />
+            </AdminField>
+            <label className="flex items-center gap-2 cursor-pointer pb-2">
+              <input
+                type="checkbox" checked={trending} onChange={(e) => setTrending(e.target.checked)}
+                className="h-4 w-4 border border-line bg-paper accent-accent cursor-pointer"
+              />
+              <span className="font-util text-[10px] uppercase tracking-wider text-ink">Mark Trending</span>
             </label>
-            <input
-              type="text"
-              value={image}
-              onChange={(e) => setImage(e.target.value)}
-              placeholder="Paste Unsplash or media library URL"
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-            />
           </div>
 
-          {/* Published At & Trending */}
-          <div className="grid grid-cols-2 gap-4 items-center">
-            <div className="space-y-1">
-              <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                Publish Date *
-              </label>
-              <input
-                type="datetime-local"
-                required
-                value={publishedAt}
-                onChange={(e) => setPublishedAt(e.target.value)}
-                className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-              />
-            </div>
-            <div className="flex items-center gap-2 pt-4">
-              <input
-                id="form-trending"
-                type="checkbox"
-                checked={trending}
-                onChange={(e) => setTrending(e.target.checked)}
-                className="h-4 w-4 border border-line rounded-none bg-paper accent-ink cursor-pointer"
-              />
-              <label
-                htmlFor="form-trending"
-                className="font-util text-eyebrow text-ink-soft uppercase tracking-wider cursor-pointer"
-              >
-                Mark as Trending
-              </label>
-            </div>
-          </div>
-
-          {/* Form Error */}
           {formError && (
-            <p className="font-util text-[10px] text-accent uppercase tracking-wider">
-              {formError}
+            <p className="font-util text-[10px] text-red-600 uppercase tracking-wider border border-red-200 bg-red-50 px-3 py-2">
+              ⚠ {formError}
             </p>
           )}
 
-          {/* Actions */}
-          <div className="flex gap-4 pt-4 border-t border-line">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="flex-1 font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent border border-ink py-2 cursor-pointer disabled:opacity-50"
-            >
-              {submitting ? "Saving..." : "Save Record"}
+          <div className="flex gap-3 pt-3 border-t border-line">
+            <button type="submit" disabled={submitting} className="flex-1 font-util text-[10px] uppercase tracking-wider text-paper bg-accent hover:opacity-90 py-2.5 cursor-pointer disabled:opacity-50 transition-opacity">
+              {submitting ? "Saving..." : editItem ? "Update Record" : "Create Record"}
             </button>
-            <button
-              type="button"
-              onClick={() => setIsDrawerOpen(false)}
-              className="flex-1 font-util text-eyebrow uppercase tracking-wider text-ink border border-line hover:bg-paper py-2 cursor-pointer"
-            >
+            <button type="button" onClick={() => setDrawerOpen(false)} className="flex-1 font-util text-[10px] uppercase tracking-wider text-ink border border-line hover:border-accent py-2.5 cursor-pointer transition-colors">
               Cancel
             </button>
           </div>
         </form>
-      </div>
+      </AdminDrawer>
     </div>
   );
 }
