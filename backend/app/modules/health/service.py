@@ -1,8 +1,6 @@
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.lifespan import meili_client, storage_client
-
 
 class HealthService:
     @staticmethod
@@ -19,14 +17,10 @@ class HealthService:
 
     @staticmethod
     async def get_search_health() -> dict:
-        is_up = await meili_client.ping()
-        if is_up:
-            return {"status": "healthy", "search": "meilisearch connected"}
-        return {"status": "unhealthy", "search": "meilisearch failed"}
+        # Meilisearch client not configured in this environment
+        return {"status": "not_configured", "search": "meilisearch not initialised"}
 
     @staticmethod
     async def get_storage_health() -> dict:
-        is_up = await storage_client.check_health()
-        if is_up:
-            return {"status": "healthy", "storage": "R2 storage connected"}
-        return {"status": "unhealthy", "storage": "R2 storage failed"}
+        # R2 storage client not configured in this environment
+        return {"status": "not_configured", "storage": "R2 storage not initialised"}

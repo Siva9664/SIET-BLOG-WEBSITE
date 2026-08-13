@@ -135,45 +135,37 @@ export default async function MagazinePage(props: { searchParams: SearchParams }
   try {
     if (activeType) {
       const res = await api.magByType(activeType);
-      achievements = res.items;
-      currentPage = res.page;
-      totalPages = res.pages;
+      achievements = res.items ?? [];
+      currentPage = res.page ?? 1;
+      totalPages = res.pages ?? 1;
 
       if (activeYear) {
         achievements = achievements.filter((a) => a.year.toString() === activeYear);
       }
     } else if (activeYear) {
       const res = await api.magByYear(parseInt(activeYear, 10));
-      achievements = res.items;
-      currentPage = res.page;
-      totalPages = res.pages;
+      achievements = res.items ?? [];
+      currentPage = res.page ?? 1;
+      totalPages = res.pages ?? 1;
     } else {
       const q = `?page=${pageNum}`;
       const res = await api.magazine(q);
-      achievements = res.items;
-      currentPage = res.page;
-      totalPages = res.pages;
+      achievements = res.items ?? [];
+      currentPage = res.page ?? 1;
+      totalPages = res.pages ?? 1;
     }
   } catch (error) {
-    console.warn("Magazine API failed. Falling back to static mock achievements.", error);
-    isFallback = true;
-    let filtered = [...FALLBACK_ACHIEVEMENTS];
-    if (activeType) {
-      filtered = filtered.filter((a) => a.type.toLowerCase() === activeType.toLowerCase());
-    }
-    if (activeYear) {
-      filtered = filtered.filter((a) => a.year.toString() === activeYear);
-    }
-    achievements = filtered;
+    console.error("Magazine API request error:", error);
+    achievements = [];
     currentPage = 1;
     totalPages = 1;
     isPaginated = false;
   }
 
-  // Filter department client-side (no dedicated API endpoint exists in §6)
+  // Filter department client-side
   if (activeDept) {
     achievements = achievements.filter((a) => a.department === activeDept);
-    isPaginated = false; // client-side filter invalidates absolute API pagination count
+    isPaginated = false;
   }
 
   // Query-param URL builders for the filters
@@ -198,11 +190,6 @@ export default async function MagazinePage(props: { searchParams: SearchParams }
 
   return (
     <main className="kitchen-page">
-      {isFallback && (
-        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
-          ⚠ Showing sample content — live data unavailable
-        </div>
-      )}
       {/* Header */}
       <header className="flex flex-col gap-2 reveal">
         <p className="eyebrow">SIET Magazine</p>

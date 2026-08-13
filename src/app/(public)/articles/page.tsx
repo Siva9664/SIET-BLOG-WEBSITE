@@ -108,15 +108,15 @@ export default async function ArticlesPage(props: { searchParams: SearchParams }
   try {
     if (activeDomain) {
       const res = await api.articlesByDomain(activeDomain);
-      articles = res.items;
-      currentPage = res.page;
-      totalPages = res.pages;
+      articles = res.items ?? [];
+      currentPage = res.page ?? 1;
+      totalPages = res.pages ?? 1;
     } else {
       const q = `?page=${pageNum}`;
       const res = await api.articles(q);
-      articles = res.items;
-      currentPage = res.page;
-      totalPages = res.pages;
+      articles = res.items ?? [];
+      currentPage = res.page ?? 1;
+      totalPages = res.pages ?? 1;
     }
   } catch (error) {
     console.warn("Articles API call failed. Falling back to static mock data.", error);
