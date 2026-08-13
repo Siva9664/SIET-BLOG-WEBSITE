@@ -5,12 +5,15 @@ type DomainFilterProps = {
   domains: Domain[];
   activeSlug?: string;
   hrefBuilder?: (slug: string) => string;
+  totalCount?: number;
 };
 
-export function DomainFilter({ domains, activeSlug, hrefBuilder }: DomainFilterProps) {
+export function DomainFilter({ domains, activeSlug, hrefBuilder, totalCount }: DomainFilterProps) {
+  const allLabel = totalCount !== undefined ? `All ${totalCount}` : "All";
+
   return (
     <nav aria-label="Filter by domain" className="domain-filter">
-      <TagChip active={!activeSlug} href={hrefBuilder ? hrefBuilder("") : "/news"} label="All" />
+      <TagChip active={!activeSlug} href={hrefBuilder ? hrefBuilder("") : "/news"} label={allLabel} />
       {domains.map((domain) => (
         <TagChip
           active={domain.slug === activeSlug}
@@ -22,4 +25,3 @@ export function DomainFilter({ domains, activeSlug, hrefBuilder }: DomainFilterP
     </nav>
   );
 }
-

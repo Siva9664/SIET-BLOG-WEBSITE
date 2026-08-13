@@ -97,7 +97,7 @@ def user_payload(user: User | None) -> dict[str, Any]:
 
 def paginated_payload(items: Sequence[Any], page: int, limit: int, total: int) -> dict[str, Any]:
     pages = max(1, ceil(total / limit)) if limit else 1
-    return {"items": list(items), "page": page, "pages": pages, "total": total}
+    return {"items": list(items), "page": page, "pageSize": limit, "pages": pages, "total": total}
 
 
 def normalize_page(page: int) -> int:
@@ -132,18 +132,71 @@ async def serialize_news(
     domains = domains or await get_domain_map(db)
     media = media or await get_media_map(db)
     kind = ContentKind.NEWS
-    image = media[item.featured_image_id].public_url if item.featured_image_id is not None and item.featured_image_id in media else None
+    image = (
+        item.image_url
+        or (media[item.featured_image_id].public_url if item.featured_image_id is not None and item.featured_image_id in media else None)
+        or "https://images.unsplash.com/photo-1677442136019-21780efad99a?auto=format&fit=crop&w=1200&q=80"
+    )
+    # Query story coverage entries for multi-source verification
+    from app.modules.news.models import StoryCoverage
+    coverage_q = await db.execute(
+        select(StoryCoverage).where(StoryCoverage.news_id == item.id).order_by(StoryCoverage.is_primary.desc())
+    )
+    coverage_records = list(coverage_q.scalars().all())
+
+    coverage_count = max(item.coverage_count or 1, len(coverage_records))
+    verification_status = item.verification_status or ("confirmed" if coverage_count >= 2 else "single_source")
+
+    coverage_payload = [
+        {
+            "id": str(c.id),
+            "source_name": c.source_name,
+            "title": c.title,
+            "url": c.source_url,
+            "published_at": c.published_at.isoformat() if c.published_at else item.published_at.isoformat(),
+            "is_primary": c.is_primary,
+        }
+        for c in coverage_records
+    ]
+
     return {
         "id": str(item.id),
         "slug": item.slug,
         "title": item.title,
-        "aiSummary": item.excerpt or item.content[:220],
+        "content": item.content,
+        "simple_explanation": item.simple_explanation or item.content_summary or item.excerpt or item.content[:220],
+        "detailed_sections": item.detailed_sections or [
+            {
+                "heading": "Event Overview",
+                "paragraphs": [item.detailed_summary or item.content]
+            }
+        ],
+        "content_depth": item.content_depth or "summary_only",
+        "contentSummary": item.content_summary or item.simple_explanation,
+        "detailedSummary": item.detailed_summary,
+        "keyPoints": item.key_points or [],
+        "technicalDetails": item.technical_details,
+        "whyItMatters": item.why_it_matters,
+        "studentRelevance": item.student_relevance,
+        "department": item.department or "ai-ml",
+        "subcategory": item.subcategory or "General",
+        "tags": item.tags_list or [item.department or "AI-ML"],
+        "verification_status": verification_status,
+        "coverage_count": coverage_count,
+        "coverage": coverage_payload,
         "sourceUrl": getattr(item, "source_url", None) or "",
-        "sourceName": getattr(item, "source_name", None) or "SIET News",
+        "canonicalUrl": getattr(item, "canonical_url", None) or getattr(item, "source_url", None) or "",
+        "sourceName": getattr(item, "source_name", None) or "SIET Tech News",
+        "author": getattr(item, "author", None) or "SIET Tech News Desk",
         "domain": domain_payload(domains.get(item.domain_id) if item.domain_id is not None else None),
-        "tags": [],
         "image": image,
+        "imageUrl": image,
         "publishedAt": (item.published_at or item.created_at).isoformat(),
+        "fetchedAt": item.fetched_at.isoformat() if item.fetched_at else None,
+        "is_archived": getattr(item, "is_archived", False),
+        "archived_at": item.archived_at.isoformat() if getattr(item, "archived_at", None) else None,
+        "processing_status": getattr(item, "processing_status", "processed"),
+        "processedAt": item.processed_at.isoformat() if item.processed_at else None,
         "trending": False,
         "likes": await like_count(db, item.id, kind),
         "liked": await is_liked(db, item.id, kind, current_user_id),

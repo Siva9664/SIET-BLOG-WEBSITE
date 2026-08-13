@@ -5,6 +5,7 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.logging import logger
 
 
 class TokenPayload(BaseModel):
@@ -13,19 +14,25 @@ class TokenPayload(BaseModel):
     exp: datetime
     type: str  # "access" or "refresh"
 
+
 def hash_password(password: str) -> str:
     password_bytes = password.encode("utf-8")
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode("utf-8")
 
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    plain_bytes = plain_password.encode("utf-8")
-    hashed_bytes = hashed_password.encode("utf-8")
-    try:
-        return bcrypt.checkpw(plain_bytes, hashed_bytes)
-    except Exception:
+    if not plain_password or not hashed_password:
         return False
+    try:
+        plain_bytes = plain_password.encode("utf-8")
+        hashed_bytes = hashed_password.encode("utf-8")
+        return bcrypt.checkpw(plain_bytes, hashed_bytes)
+    except Exception as e:
+        logger.warning(f"bcrypt checkpw exception: {e}")
+        return False
+
 
 def create_token(data: dict, expires_delta: timedelta, token_type: str) -> str:
     to_encode = data.copy()
@@ -33,24 +40,26 @@ def create_token(data: dict, expires_delta: timedelta, token_type: str) -> str:
     to_encode.update({"exp": int(expire.timestamp()), "type": token_type})
     return str(jwt.encode(to_encode, settings.JWT_SECRET.get_secret_value(), algorithm=settings.JWT_ALGORITHM))
 
+
 def create_access_token(user_id: str, role: str) -> str:
     return create_token(
         data={"sub": str(user_id), "role": role},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
-        token_type="access"
+        token_type="access",
     )
+
 
 def create_refresh_token(user_id: str, role: str) -> str:
     return create_token(
         data={"sub": str(user_id), "role": role},
         expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-        token_type="refresh"
+        token_type="refresh",
     )
+
 
 def decode_token(token: str) -> TokenPayload | None:
     try:
         payload = jwt.decode(token, settings.JWT_SECRET.get_secret_value(), algorithms=[settings.JWT_ALGORITHM])
-        # jwt.decode exp can return epoch int, so Pydantic parses standard timestamp to datetime
         return TokenPayload(**payload)
     except (JWTError, Exception):
         return None

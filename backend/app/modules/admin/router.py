@@ -1,5 +1,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -12,6 +13,7 @@ from app.modules.admin.schemas import (
     AdminNewsCreate,
     AdminNewsUpdate,
     AdminUserCreate,
+    AdminUserUpdate,
     AnalyticsResponse,
     DashboardResponse,
 )
@@ -55,13 +57,40 @@ async def get_analytics(
 @router.get("/news")
 async def admin_list_news(
     cursor: str | None = Query(None),
-    status: str | None = Query(None),
+    status: str | None = Query("active"),
+    department: str | None = Query(None),
+    subcategory: str | None = Query(None),
+    source_id: int | None = Query(None),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    processing_status: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
     service = NewsService(NewsRepository(db))
-    content_status = ContentStatus(status.lower()) if status and status.lower() != "all" else None
-    items, page_info = await service.list_news(limit=20, cursor=cursor, status=content_status)
+    archived_status = "active"
+    content_status = None
+
+    if status in ("active", "archived", "all"):
+        archived_status = status
+    elif status and status.lower() != "all":
+        try:
+            content_status = ContentStatus(status.lower())
+        except ValueError:
+            pass
+
+    items, page_info = await service.list_admin_news(
+        limit=20,
+        cursor=cursor,
+        archived_status=archived_status,
+        department=department,
+        subcategory=subcategory,
+        source_id=source_id,
+        start_date=start_date,
+        end_date=end_date,
+        processing_status=processing_status,
+        status=content_status,
+    )
     return {"items": [await serialize_news(db, item) for item in items], "pageInfo": page_info.model_dump()}
 
 @router.post("/news", status_code=status.HTTP_201_CREATED)
@@ -103,15 +132,29 @@ async def admin_delete_news(
     await service.delete_news(news_id)
     return None
 
+@router.post("/news/trigger-fetch")
+async def admin_trigger_news_fetch(
+    current_user: User = Depends(require_admin)
+):
+    from app.modules.news.pipeline import run_sync_pipeline
+    res = await run_sync_pipeline(is_full_sync=True)
+    return {"message": "Live web news research and ingestion completed successfully.", "details": res}
+
 # USERS CRUD
+@router.get("/users")
+async def admin_list_users(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    users = list((await db.execute(select(User).order_by(User.id))).scalars().all())
+    return [serialize_user(u) for u in users]
+
 @router.post("/users", status_code=status.HTTP_201_CREATED)
 async def admin_create_user(
     payload: AdminUserCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    from fastapi import HTTPException
-
     from app.core.security import hash_password
     
     repo = UserRepository(db)
@@ -128,6 +171,45 @@ async def admin_create_user(
     user = await repo.create(user)
     await repo.db.refresh(user)
     return serialize_user(user)
+
+@router.put("/users/{user_id}")
+async def admin_update_user(
+    user_id: str,
+    payload: AdminUserUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    from app.core.security import hash_password
+
+    repo = UserRepository(db)
+    user = await repo.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if payload.name is not None:
+        user.name = payload.name
+    if payload.email is not None:
+        user.email = payload.email
+    if payload.role is not None:
+        user.role = payload.role
+    if payload.email_verified is not None:
+        user.email_verified = payload.email_verified
+    if payload.password is not None and payload.password.strip():
+        user.password_hash = hash_password(payload.password)
+    await repo.update(user)
+    return serialize_user(user)
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_delete_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    repo = UserRepository(db)
+    user = await repo.get_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    await repo.delete(user)
+    return None
 
 # ARTICLES CRUD
 from app.modules.articles.repository import ArticleRepository

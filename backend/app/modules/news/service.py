@@ -49,6 +49,46 @@ class NewsService:
         page_info = CursorPageInfo(next_cursor=next_cursor, has_next=has_next)
         return items, page_info
 
+    async def list_admin_news(
+        self,
+        limit: int = 20,
+        cursor: str | None = None,
+        archived_status: str | None = "active",
+        department: str | None = None,
+        subcategory: str | None = None,
+        source_id: int | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        processing_status: str | None = None,
+        status: ContentStatus | None = None,
+    ) -> tuple[list[News], CursorPageInfo]:
+        cursor_data = decode_cursor(cursor)
+        cursor_id = cursor_data.get("id") if cursor_data else None
+
+        items = await self.repository.get_admin_paginated(
+            limit=limit,
+            cursor_id=cursor_id,
+            archived_status=archived_status,
+            department=department,
+            subcategory=subcategory,
+            source_id=source_id,
+            start_date=start_date,
+            end_date=end_date,
+            processing_status=processing_status,
+            content_status=status,
+        )
+
+        has_next = len(items) > limit
+        if has_next:
+            items = items[:-1]
+            last_item = items[-1]
+            next_cursor = encode_cursor({"id": last_item.id})
+        else:
+            next_cursor = None
+
+        page_info = CursorPageInfo(next_cursor=next_cursor, has_next=has_next)
+        return items, page_info
+
     async def create_news(self, news_in: NewsCreate) -> News:
         slug = generate_slug(news_in.title)
         slug = await ensure_unique_slug(self.repository.db, News, slug)

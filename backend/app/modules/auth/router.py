@@ -1,5 +1,4 @@
-
-from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -8,16 +7,11 @@ from app.modules.auth.constants import ACCESS_COOKIE_MAX_AGE, REFRESH_COOKIE_MAX
 from app.modules.auth.dependencies import get_current_user
 from app.modules.auth.models import User
 from app.modules.auth.schemas import (
-    ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     LoginUser,
     RefreshResponse,
-    RegisterRequest,
-    RegisterResponse,
-    ResetPasswordRequest,
     UserResponse,
-    VerifyEmailRequest,
 )
 from app.modules.auth.service import AuthService
 from app.shared.exceptions.custom import UnauthorizedException
@@ -25,17 +19,6 @@ from app.shared.responses.helpers import success
 from app.shared.responses.schemas import SuccessResponse
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-
-
-@router.post(
-    "/register",
-    response_model=RegisterResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def register(data: RegisterRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
-    service = AuthService(db)
-    user = await service.register(data, background_tasks)
-    return RegisterResponse.model_validate(user)
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -104,40 +87,6 @@ async def logout(response: Response):
     response.delete_cookie(key=settings.ACCESS_COOKIE_NAME, domain=settings.COOKIE_DOMAIN)
     response.delete_cookie(key=settings.REFRESH_COOKIE_NAME, domain=settings.COOKIE_DOMAIN)
     return success(data="Successfully logged out.")
-
-
-@router.post("/verify-email", response_model=SuccessResponse[str])
-async def verify_email(data: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
-    service = AuthService(db)
-    await service.verify_email(data.token)
-    return success(data="Email verified successfully.")
-
-
-@router.post("/resend-verification", response_model=SuccessResponse[str])
-async def resend_verification(email: str, db: AsyncSession = Depends(get_db)):
-    service = AuthService(db)
-    await service.resend_verification(email)
-    return success(data="Verification email resent.")
-
-
-@router.post("/forgot-password", response_model=SuccessResponse[str])
-async def forgot_password(
-    data: ForgotPasswordRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    service = AuthService(db)
-    await service.forgot_password(data.email)
-    return success(data="If the email exists, a password reset link has been sent.")
-
-
-@router.post("/reset-password", response_model=SuccessResponse[str])
-async def reset_password(
-    data: ResetPasswordRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    service = AuthService(db)
-    await service.reset_password(data)
-    return success(data="Password has been reset successfully.")
 
 
 @router.get("/me", response_model=UserResponse)

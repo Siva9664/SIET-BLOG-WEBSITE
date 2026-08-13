@@ -17,6 +17,9 @@ class MagazineType(str, Enum):
     QUARTERLY = "quarterly"
     ANNUAL = "annual"
     SPECIAL = "special"
+    HACKATHON = "hackathon"
+    PUBLICATION = "publication"
+    PROJECT = "project"
 
 class MediaType(str, Enum):
     IMAGE = "image"

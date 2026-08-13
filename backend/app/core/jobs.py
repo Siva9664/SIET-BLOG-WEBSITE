@@ -1,15 +1,33 @@
-﻿import asyncio
-
+import asyncio
 from app.core.logging import logger
 
 
 class BackgroundJobRunner:
     @staticmethod
+    async def schedule_hourly_news_ingestion(interval_seconds: int = 3600):
+        """Continuously scrape live web news feeds every hour and append new entries into PostgreSQL DB."""
+        logger.info(f"Hourly live news ingestion scheduler initiated (interval: {interval_seconds}s)...")
+        while True:
+            # Sleep first on startup so application initializes immediately
+            await asyncio.sleep(interval_seconds)
+            try:
+                from scripts.fetch_todays_news import sync_todays_news
+                logger.info("Executing scheduled hourly live web news research & sync...")
+                await sync_todays_news()
+                logger.info(f"Hourly news research complete. Next scheduled run in {interval_seconds} seconds.")
+            except asyncio.CancelledError:
+                logger.info("Hourly news ingestion task cancelled gracefully.")
+                break
+            except Exception as e:
+                logger.error(f"Error during scheduled news ingestion: {e}")
+
+    @staticmethod
     async def run_rss_ingestion():
-        """Fetch RSS feeds and populate DB."""
-        logger.info("Running RSS ingestion background job...")
-        await asyncio.sleep(1)
-        logger.info("RSS ingestion complete.")
+        """Fetch RSS feeds and populate DB on demand."""
+        logger.info("Running manual RSS ingestion background job...")
+        from scripts.fetch_todays_news import sync_todays_news
+        await sync_todays_news()
+        logger.info("Manual RSS ingestion complete.")
 
     @staticmethod
     async def calculate_trending():

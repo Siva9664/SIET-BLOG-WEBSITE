@@ -10,7 +10,6 @@ import {
   AdminField,
   AdminSearchBar,
   AdminToast,
-  AdminEmptyState,
   adminInputCls,
   adminTextareaCls,
   adminSelectCls,
@@ -19,10 +18,13 @@ import type { NewsItem, Domain } from "@/lib/types";
 
 // ─── Fallbacks ───────────────────────────────────────────────────────────────
 const FALLBACK_DOMAINS: Domain[] = [
-  { slug: "machine-learning", name: "Machine Learning", count: 42 },
-  { slug: "robotics", name: "Robotics", count: 19 },
-  { slug: "campus-research", name: "Campus Research", count: 27 },
-  { slug: "ethics", name: "AI Ethics", count: 12 },
+  { slug: "ai-ml", name: "AI & ML", count: 42 },
+  { slug: "cybersecurity", name: "Cybersecurity", count: 19 },
+  { slug: "pcb-electronics", name: "PCB & Electronics", count: 27 },
+  { slug: "vlsi-chips", name: "VLSI & Semiconductor", count: 12 },
+  { slug: "robotics", name: "Robotics", count: 15 },
+  { slug: "ar-vr-xr", name: "AR / VR / XR", count: 8 },
+  { slug: "iot-embedded", name: "IoT & Embedded", count: 14 },
 ];
 
 const FALLBACK_NEWS: NewsItem[] = [
@@ -38,24 +40,9 @@ const FALLBACK_NEWS: NewsItem[] = [
     tags: [{ slug: "models", name: "Models" }],
     image:
       "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=900&q=80",
-    publishedAt: "2026-07-08T10:00:00.000Z",
+    publishedAt: "2026-08-13T10:00:00.000Z",
     trending: true,
     likes: 87,
-  },
-  {
-    id: "n2",
-    slug: "robotics-navigation-updates",
-    title: "Robotics team publishes indoor navigation benchmark",
-    aiSummary:
-      "Initial testing of LiDAR slam shows consistent map resolution under varied department lighting conditions.",
-    sourceUrl: "https://example.com",
-    sourceName: "Robotics Press",
-    domain: FALLBACK_DOMAINS[1],
-    tags: [{ slug: "navigation", name: "Navigation" }],
-    image:
-      "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=900&q=80",
-    publishedAt: "2026-07-07T14:30:00.000Z",
-    likes: 42,
   },
 ];
 
@@ -67,7 +54,8 @@ function toSlug(str: string) {
     .replace(/(^-|-$)/g, "");
 }
 
-function fmt(iso: string) {
+function fmt(iso?: string | null) {
+  if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
@@ -85,10 +73,13 @@ export default function AdminNewsCRUDPage() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Search + Filter
+  // Search + Filters
   const [search, setSearch] = useState("");
-  const [domainFilter, setDomainFilter] = useState("all");
-  const [trendingFilter, setTrendingFilter] = useState<"all" | "yes" | "no">("all");
+  const [statusFilter, setStatusFilter] = useState<"active" | "archived" | "all">("active");
+  const [processingFilter, setProcessingFilter] = useState<"all" | "flagged_for_review" | "processed">("all");
+  const [departmentFilter, setDepartmentFilter] = useState("all");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   // Drawer
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -123,19 +114,23 @@ export default function AdminNewsCRUDPage() {
           i.sourceName?.toLowerCase().includes(q)
       );
     }
-    if (domainFilter !== "all") {
-      list = list.filter((i) => i.domain?.slug === domainFilter);
-    }
-    if (trendingFilter === "yes") list = list.filter((i) => i.trending);
-    if (trendingFilter === "no") list = list.filter((i) => !i.trending);
     return list;
-  }, [allItems, search, domainFilter, trendingFilter]);
+  }, [allItems, search]);
 
   // ── Load ────────────────────────────────────────────────────────────────
   const loadNews = async (cur: string | null) => {
     setLoading(true);
     try {
-      const res = await api.adminNews(cur ? `?cursor=${cur}` : "");
+      const params = new URLSearchParams();
+      if (cur) params.set("cursor", cur);
+      if (statusFilter) params.set("status", statusFilter);
+      if (processingFilter !== "all") params.set("processing_status", processingFilter);
+      if (departmentFilter !== "all") params.set("department", departmentFilter);
+      if (startDate) params.set("start_date", startDate);
+      if (endDate) params.set("end_date", endDate);
+
+      const q = params.toString() ? `?${params.toString()}` : "";
+      const res = await api.adminNews(q);
       setAllItems(res.items);
       setHasMore(res.pageInfo.has_more);
       setNextCursor(res.pageInfo.next_cursor);
@@ -148,7 +143,10 @@ export default function AdminNewsCRUDPage() {
     }
   };
 
-  useEffect(() => { loadNews(cursor); }, [cursor]);
+  useEffect(() => {
+    loadNews(cursor);
+  }, [cursor, statusFilter, processingFilter, departmentFilter, startDate, endDate]);
+
   useEffect(() => {
     api.domains().then(setDomains).catch(() => setDomains(FALLBACK_DOMAINS));
   }, []);
@@ -221,37 +219,31 @@ export default function AdminNewsCRUDPage() {
     }
     setSubmitting(true);
     setFormError(null);
-    const activeDomain = domains.find((d) => d.slug === domainSlug) || FALLBACK_DOMAINS[0];
+
     const payload = {
-      title, slug, aiSummary, sourceName, sourceUrl,
-      domain: activeDomain, image,
-      publishedAt: new Date(publishedAt).toISOString(), trending,
+      title,
+      slug,
+      aiSummary,
+      sourceName,
+      sourceUrl,
+      domainSlug,
+      image,
+      publishedAt: new Date(publishedAt).toISOString(),
+      trending,
     };
+
     try {
       if (editItem) {
         await api.adminNewsUpdate(editItem.id, payload);
-        showToast("News item updated successfully.", "success");
+        showToast("News release updated successfully.");
       } else {
         await api.adminNewsCreate(payload);
-        showToast("News item created successfully.", "success");
+        showToast("News release created successfully.");
       }
       setDrawerOpen(false);
       loadNews(cursor);
-    } catch {
-      // Offline fallback
-      const mock: NewsItem = {
-        id: editItem?.id || `n-${Date.now()}`,
-        ...payload,
-        likes: editItem?.likes || 0,
-        tags: editItem?.tags || [],
-      };
-      if (editItem) {
-        setAllItems((prev) => prev.map((i) => (i.id === editItem.id ? mock : i)));
-      } else {
-        setAllItems((prev) => [mock, ...prev]);
-      }
-      showToast("Saved locally (API offline).", "info");
-      setDrawerOpen(false);
+    } catch (err: any) {
+      setFormError(err.message || "Failed to save news release.");
     } finally {
       setSubmitting(false);
     }
@@ -261,42 +253,42 @@ export default function AdminNewsCRUDPage() {
   const handleDelete = async (id: string) => {
     try {
       await api.adminNewsDelete(id);
-      loadNews(cursor);
-      showToast("News item deleted.", "success");
-    } catch {
-      setAllItems((prev) => prev.filter((i) => i.id !== id));
-      showToast("Removed locally (API offline).", "info");
-    } finally {
+      showToast("News release deleted.");
       setConfirmDeleteId(null);
+      loadNews(cursor);
+    } catch {
+      showToast("Failed to delete entry.", "error");
     }
   };
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-line pb-4">
+    <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-line pb-4">
         <div>
           <p className="font-util text-[10px] text-ink-soft uppercase tracking-widest">
-            Editorial Console
+            Content Management · News Portal
           </p>
           <h1 className="font-display text-h2 font-semibold text-ink mt-1">
-            News Releases
+            News Releases & Archival Management
           </h1>
-          <p className="font-util text-[10px] text-ink-soft mt-1">
-            {allItems.length} total records · {items.length} shown
+          <p className="font-util text-[11px] text-ink-soft mt-1">
+            Manage active live feeds, inspect 30-day archived articles, and review accuracy grounding flags.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+
+        <div className="flex items-center gap-3">
           <button
             onClick={handleTrigger}
             disabled={fetchingLive}
-            className="font-util text-[10px] uppercase tracking-wider text-ink bg-paper-2 hover:bg-paper border border-line px-4 py-2 cursor-pointer disabled:opacity-50 transition-colors flex items-center gap-2"
+            className="font-util text-[10px] uppercase tracking-wider bg-paper-2 hover:bg-paper border border-line text-ink px-3 py-2 transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
           >
-            {fetchingLive ? "⏳ Fetching..." : "⚡ Trigger Live Fetch"}
+            <span>{fetchingLive ? "⏳" : "⚡"}</span>
+            {fetchingLive ? "Ingesting..." : "Trigger Fetch"}
           </button>
           <button
             onClick={openCreate}
-            className="font-util text-[10px] uppercase tracking-wider text-paper bg-accent hover:opacity-90 border border-accent px-4 py-2 cursor-pointer transition-opacity"
+            className="font-util text-[10px] uppercase tracking-wider bg-accent hover:opacity-90 border border-accent text-paper px-4 py-2 transition-opacity cursor-pointer font-medium"
           >
             + Add News
           </button>
@@ -308,50 +300,159 @@ export default function AdminNewsCRUDPage() {
         <AdminToast message={toast.msg} type={toast.type} onDismiss={() => setToast(null)} />
       )}
 
-      {/* Search + Filters */}
-      <AdminSearchBar
-        value={search}
-        onChange={setSearch}
-        placeholder="Search by title, summary, or source..."
-        extra={
-          <div className="flex gap-2 flex-shrink-0">
+      {/* Filter Toolbar */}
+      <div className="bg-paper-2 border border-line p-4 rounded-md space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          {/* Status Filter */}
+          <div>
+            <label className="block font-util text-[9px] uppercase tracking-wider text-ink-soft mb-1 font-bold">
+              Archive Lifecycle
+            </label>
             <select
-              value={domainFilter}
-              onChange={(e) => setDomainFilter(e.target.value)}
-              className="border border-line bg-paper px-3 py-2 text-[10px] font-util uppercase tracking-wider outline-none focus:border-accent transition-colors"
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value as any);
+                setCursor(null);
+                setCursorHistory([null]);
+              }}
+              className="w-full border border-line bg-paper px-2.5 py-1.5 text-xs font-util outline-none focus:border-accent"
             >
-              <option value="all">All Domains</option>
-              {domains.map((d) => (
-                <option key={d.slug} value={d.slug}>{d.name}</option>
-              ))}
-            </select>
-            <select
-              value={trendingFilter}
-              onChange={(e) => setTrendingFilter(e.target.value as any)}
-              className="border border-line bg-paper px-3 py-2 text-[10px] font-util uppercase tracking-wider outline-none focus:border-accent transition-colors"
-            >
-              <option value="all">All Items</option>
-              <option value="yes">Trending Only</option>
-              <option value="no">Non-Trending</option>
+              <option value="active">Active Only (Live Site)</option>
+              <option value="archived">Archived Only (30+ Days)</option>
+              <option value="all">All News (Active & Archived)</option>
             </select>
           </div>
-        }
-      />
+
+          {/* Processing / Accuracy Filter */}
+          <div>
+            <label className="block font-util text-[9px] uppercase tracking-wider text-ink-soft mb-1 font-bold">
+              Grounding Check
+            </label>
+            <select
+              value={processingFilter}
+              onChange={(e) => {
+                setProcessingFilter(e.target.value as any);
+                setCursor(null);
+                setCursorHistory([null]);
+              }}
+              className="w-full border border-line bg-paper px-2.5 py-1.5 text-xs font-util outline-none focus:border-accent"
+            >
+              <option value="all">All Statuses</option>
+              <option value="flagged_for_review">⚠️ Flagged For Review</option>
+              <option value="processed">✓ Verified & Grounded</option>
+            </select>
+          </div>
+
+          {/* Department Filter */}
+          <div>
+            <label className="block font-util text-[9px] uppercase tracking-wider text-ink-soft mb-1 font-bold">
+              Department Taxonomy
+            </label>
+            <select
+              value={departmentFilter}
+              onChange={(e) => {
+                setDepartmentFilter(e.target.value);
+                setCursor(null);
+                setCursorHistory([null]);
+              }}
+              className="w-full border border-line bg-paper px-2.5 py-1.5 text-xs font-util outline-none focus:border-accent"
+            >
+              <option value="all">All Departments</option>
+              <option value="ai-ml">AI & ML</option>
+              <option value="cybersecurity">Cybersecurity</option>
+              <option value="pcb-electronics">PCB & Electronics</option>
+              <option value="vlsi-chips">VLSI & Chips</option>
+              <option value="robotics">Robotics</option>
+              <option value="ar-vr-xr">AR / VR / XR</option>
+              <option value="iot-embedded">IoT & Embedded</option>
+            </select>
+          </div>
+
+          {/* Start Date */}
+          <div>
+            <label className="block font-util text-[9px] uppercase tracking-wider text-ink-soft mb-1 font-bold">
+              Published From
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full border border-line bg-paper px-2.5 py-1.5 text-xs font-util outline-none focus:border-accent"
+            />
+          </div>
+
+          {/* End Date */}
+          <div>
+            <label className="block font-util text-[9px] uppercase tracking-wider text-ink-soft mb-1 font-bold">
+              Published To
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full border border-line bg-paper px-2.5 py-1.5 text-xs font-util outline-none focus:border-accent"
+            />
+          </div>
+
+          {/* Reset Filters */}
+          <div className="flex items-end">
+            <button
+              onClick={() => {
+                setStatusFilter("active");
+                setProcessingFilter("all");
+                setDepartmentFilter("all");
+                setStartDate("");
+                setEndDate("");
+                setSearch("");
+                setCursor(null);
+                setCursorHistory([null]);
+              }}
+              className="w-full border border-line bg-paper hover:bg-paper-2 px-3 py-1.5 text-xs font-util uppercase tracking-wider text-ink-soft hover:text-ink transition-colors cursor-pointer"
+            >
+              Reset Filters
+            </button>
+          </div>
+        </div>
+
+        {/* Search Input */}
+        <AdminSearchBar
+          value={search}
+          onChange={setSearch}
+          placeholder="Search by title, summary, or source..."
+        />
+      </div>
 
       {/* Table */}
       <AdminTable
-        columns={["Title", "Domain", "Source", "Published", "Trending", "Actions"]}
+        columns={["Title", "Department", "Source", "Published Date", "Archived At", "Status", "Actions"]}
         loading={loading}
-        empty="No news entries match your filters."
+        empty="No news entries match your filter criteria."
       >
-        {items.map((item) => (
+        {items.map((item: any) => (
           <tr key={item.id} className="hover:bg-paper-2 transition-colors">
             <td className="p-4 max-w-xs">
+              <div className="flex items-center gap-1.5 mb-1">
+                {item.is_archived && (
+                  <span className="px-1.5 py-0.5 text-[8px] font-bold font-util uppercase tracking-wider bg-purple-500/10 text-purple-700 border border-purple-500/30 rounded">
+                    Archived
+                  </span>
+                )}
+                {item.processing_status === "flagged_for_review" && (
+                  <span className="px-1.5 py-0.5 text-[8px] font-bold font-util uppercase tracking-wider bg-amber-500/10 text-amber-700 border border-amber-500/30 rounded">
+                    ⚠️ Flagged
+                  </span>
+                )}
+                {!item.is_archived && item.processing_status !== "flagged_for_review" && (
+                  <span className="px-1.5 py-0.5 text-[8px] font-bold font-util uppercase tracking-wider bg-emerald-500/10 text-emerald-700 border border-emerald-500/30 rounded">
+                    Active
+                  </span>
+                )}
+              </div>
               <p className="font-display font-medium text-ink truncate">{item.title}</p>
-              <p className="font-util text-[9px] text-ink-soft mt-0.5 truncate">{item.slug}</p>
+              <p className="font-util text-[9px] text-ink-soft truncate">{item.slug}</p>
             </td>
             <td className="p-4 font-util text-[10px] text-ink-soft uppercase tracking-wider whitespace-nowrap">
-              {item.domain?.name ?? "General"}
+              {item.department || item.domain?.name || "General"}
             </td>
             <td className="p-4 font-util text-[10px] text-ink-soft truncate max-w-[120px]">
               {item.sourceName || "—"}
@@ -359,13 +460,18 @@ export default function AdminNewsCRUDPage() {
             <td className="p-4 font-util text-[10px] text-ink-soft whitespace-nowrap">
               {fmt(item.publishedAt)}
             </td>
+            <td className="p-4 font-util text-[10px] text-ink-soft whitespace-nowrap">
+              {item.is_archived ? fmt(item.archived_at) : "—"}
+            </td>
             <td className="p-4">
-              {item.trending ? (
-                <span className="font-util text-[9px] uppercase tracking-wider text-emerald-700 border border-emerald-300 bg-emerald-50 px-1.5 py-0.5">
-                  Trending
+              {item.is_archived ? (
+                <span className="font-util text-[9px] uppercase tracking-wider text-purple-700 border border-purple-300 bg-purple-50 px-1.5 py-0.5">
+                  Vault (30d+)
                 </span>
               ) : (
-                <span className="font-util text-[9px] text-ink-soft">—</span>
+                <span className="font-util text-[9px] uppercase tracking-wider text-emerald-700 border border-emerald-300 bg-emerald-50 px-1.5 py-0.5">
+                  Live Feed
+                </span>
               )}
             </td>
             <td className="p-4 text-right whitespace-nowrap">
@@ -448,39 +554,31 @@ export default function AdminNewsCRUDPage() {
           </div>
 
           <AdminField label="Cover Image URL">
-            <input type="text" value={image} onChange={(e) => setImage(e.target.value)} placeholder="Paste image URL" className={adminInputCls} />
-            {image && (
-              <div className="mt-2 border border-line overflow-hidden h-24 bg-paper-2">
-                <img src={image} alt="preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-              </div>
-            )}
+            <input type="url" value={image} onChange={(e) => setImage(e.target.value)} placeholder="https://..." className={adminInputCls} />
           </AdminField>
 
-          <div className="grid grid-cols-2 gap-4 items-end">
-            <AdminField label="Publish Date" required>
+          <div className="grid grid-cols-2 gap-4">
+            <AdminField label="Published Date" required>
               <input type="datetime-local" required value={publishedAt} onChange={(e) => setPublishedAt(e.target.value)} className={adminInputCls} />
             </AdminField>
-            <label className="flex items-center gap-2 cursor-pointer pb-2">
-              <input
-                type="checkbox" checked={trending} onChange={(e) => setTrending(e.target.checked)}
-                className="h-4 w-4 border border-line bg-paper accent-accent cursor-pointer"
-              />
-              <span className="font-util text-[10px] uppercase tracking-wider text-ink">Mark Trending</span>
-            </label>
+            <AdminField label="Trending Status">
+              <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                <input type="checkbox" checked={trending} onChange={(e) => setTrending(e.target.checked)} className="rounded text-accent" />
+                <span className="font-util text-xs text-ink">Mark as Trending</span>
+              </label>
+            </AdminField>
           </div>
 
           {formError && (
-            <p className="font-util text-[10px] text-red-600 uppercase tracking-wider border border-red-200 bg-red-50 px-3 py-2">
-              ⚠ {formError}
-            </p>
+            <p className="font-util text-xs text-red-600 bg-red-50 p-3 border border-red-200">{formError}</p>
           )}
 
-          <div className="flex gap-3 pt-3 border-t border-line">
-            <button type="submit" disabled={submitting} className="flex-1 font-util text-[10px] uppercase tracking-wider text-paper bg-accent hover:opacity-90 py-2.5 cursor-pointer disabled:opacity-50 transition-opacity">
-              {submitting ? "Saving..." : editItem ? "Update Record" : "Create Record"}
-            </button>
-            <button type="button" onClick={() => setDrawerOpen(false)} className="flex-1 font-util text-[10px] uppercase tracking-wider text-ink border border-line hover:border-accent py-2.5 cursor-pointer transition-colors">
+          <div className="flex justify-end gap-3 pt-4 border-t border-line">
+            <button type="button" onClick={() => setDrawerOpen(false)} className="px-4 py-2 border border-line text-xs font-util uppercase tracking-wider text-ink hover:bg-paper-2">
               Cancel
+            </button>
+            <button type="submit" disabled={submitting} className="px-5 py-2 bg-accent text-paper text-xs font-util uppercase tracking-wider font-semibold hover:opacity-90 disabled:opacity-50">
+              {submitting ? "Saving..." : editItem ? "Update Release" : "Publish Release"}
             </button>
           </div>
         </form>

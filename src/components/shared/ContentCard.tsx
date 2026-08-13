@@ -44,6 +44,7 @@ export function ContentCard(props: ContentCardProps) {
             src={image}
             alt={item.title}
             fill
+            unoptimized
             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 33vw, 25vw"
             className="object-cover transition-transform duration-700 ease-out group-hover:scale-105"
           />
@@ -66,7 +67,10 @@ export function ContentCard(props: ContentCardProps) {
         {variant === "achievement" ? (
           <TagChip label={item.type} />
         ) : (
-          (item.tags || []).slice(0, 2).map((tag) => <TagChip key={tag.slug} label={tag.name} />)
+          (item.tags || []).slice(0, 2).map((tag, idx) => {
+            const label = typeof tag === "string" ? tag : tag.name || tag.slug;
+            return <TagChip key={idx} label={label} />;
+          })
         )}
       </div>
       <footer className="content-card-footer">

@@ -33,15 +33,12 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# Middleware registry (FastAPI runs middlewares top-to-bottom for request, bottom-to-top for response)
-app.add_middleware(AuditMiddleware)
-app.add_middleware(AuthenticationMiddleware)
-app.add_middleware(RequestIDMiddleware)
-
-# Configure CORS
+# Configure CORS (Must be mounted outermost for OPTIONS preflight requests to succeed)
 origins = settings.ALLOWED_ORIGINS
 if isinstance(origins, str):
     origins = [o.strip() for o in origins.split(",") if o.strip()]
+if "http://localhost:3000" not in origins:
+    origins.append("http://localhost:3000")
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,6 +47,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Custom Middlewares
+app.add_middleware(AuditMiddleware)
+app.add_middleware(AuthenticationMiddleware)
+app.add_middleware(RequestIDMiddleware)
 
 # Register custom exception mappings
 register_exception_handlers(app)

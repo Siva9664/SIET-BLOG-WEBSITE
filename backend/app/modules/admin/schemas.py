@@ -39,12 +39,20 @@ class AdminUserUpdate(BaseModel):
     email: EmailStr | None = None
     role: str | None = None
     email_verified: bool | None = None
+    password: str | None = None
 
 class DashboardTotals(BaseModel):
     users: int
     news: int
     articles: int
     magazines: int
+
+class TodayAccuracy(BaseModel):
+    date: str
+    verified: int
+    flagged: int
+    failed: int
+    total: int
 
 class DashboardActivity(BaseModel):
     id: int
@@ -54,6 +62,7 @@ class DashboardActivity(BaseModel):
 
 class DashboardResponse(BaseModel):
     totals: DashboardTotals
+    todayAccuracy: TodayAccuracy
     recentActivity: list[DashboardActivity]
 
 class AnalyticsResponse(BaseModel):

@@ -1,6 +1,6 @@
 import type { Achievement, Article, Domain, NewsItem, Paginated, CursorPaginated, SiteSettings, User } from "./types";
 
-const BASE = `${process.env.NEXT_PUBLIC_API_BASE!}/api/v1`;
+const BASE = `${process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000"}/api/v1`;
 
 let currentUserPromise: Promise<User | null> | null = null;
 
@@ -12,6 +12,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     const res = await fetch(`${BASE}${path}`, {
       credentials: "include",
+      cache: "no-store",
       headers: { ...headers, ...init?.headers },
       ...init,
     });
@@ -94,12 +95,60 @@ const normalizeNewsItem = (item: any): NewsItem => ({
   id: String(item.id ?? ""),
   slug: item.slug ?? "",
   title: item.title ?? "",
-  aiSummary: item.aiSummary ?? item.excerpt ?? item.content ?? "",
+  content: item.content ?? "",
+  aiSummary: item.aiSummary ?? item.simple_explanation ?? item.contentSummary ?? item.excerpt ?? item.content ?? "",
+  simpleExplanation: item.simple_explanation ?? item.simpleExplanation ?? item.contentSummary ?? item.aiSummary ?? "",
+  detailedSections: Array.isArray(item.detailed_sections)
+    ? item.detailed_sections.map((sec: any) => ({
+        heading: sec.heading ?? "Overview",
+        paragraphs: Array.isArray(sec.paragraphs) ? sec.paragraphs : [String(sec.paragraphs ?? "")],
+      }))
+    : Array.isArray(item.detailedSections)
+    ? item.detailedSections
+    : [
+        {
+          heading: "Overview",
+          paragraphs: [item.detailedSummary ?? item.content ?? ""],
+        },
+      ],
+  contentDepth: item.content_depth ?? item.contentDepth ?? "summary_only",
+  contentSummary: item.contentSummary ?? item.simple_explanation ?? item.excerpt ?? "",
+  detailedSummary: item.detailedSummary ?? item.content ?? "",
+  keyPoints: Array.isArray(item.keyPoints)
+    ? item.keyPoints
+    : typeof item.keyPoints === "string"
+      ? (function() { try { return JSON.parse(item.keyPoints); } catch { return [item.keyPoints]; } })()
+      : Array.isArray(item.key_points) ? item.key_points : [],
+  technicalDetails: item.technicalDetails ?? item.technical_details ?? "",
+  whyItMatters: item.whyItMatters ?? item.why_it_matters ?? "",
+  studentRelevance: item.studentRelevance ?? item.student_relevance ?? "",
+  department: item.department ?? "",
+  subcategory: item.subcategory ?? "",
+  verificationStatus: item.verification_status ?? item.verificationStatus ?? "single_source",
+  coverageCount: Number(item.coverage_count ?? item.coverageCount ?? (Array.isArray(item.coverage) ? item.coverage.length : 1)),
+  coverage: Array.isArray(item.coverage)
+    ? item.coverage.map((c: any) => ({
+        id: String(c.id ?? ""),
+        sourceName: c.source_name ?? c.sourceName ?? "Outlet",
+        title: c.title ?? "",
+        url: c.url ?? c.source_url ?? "",
+        publishedAt: c.published_at ?? c.publishedAt ?? new Date().toISOString(),
+        isPrimary: Boolean(c.is_primary ?? c.isPrimary),
+      }))
+    : [],
   sourceUrl: item.sourceUrl ?? "",
   sourceName: item.sourceName ?? "SIET News",
-  domain: normalizeDomain(item.domain),
+  domain: item.domain && typeof item.domain === "object" && item.domain.name
+    ? normalizeDomain(item.domain)
+    : {
+        slug: item.department || "ai-ml",
+        name: item.subcategory && item.subcategory !== "General"
+          ? item.subcategory
+          : (item.department ? item.department.toUpperCase().replace("-", " ") : "AI & ML"),
+        count: 0,
+      },
   tags: Array.isArray(item.tags) ? item.tags : [],
-  image: item.image ?? item.cover ?? "",
+  image: item.image ?? item.cover ?? item.imageUrl ?? "",
   publishedAt: item.publishedAt ?? item.published_at ?? item.created_at ?? new Date().toISOString(),
   trending: Boolean(item.trending),
   likes: Number(item.likes ?? 0),
@@ -163,36 +212,59 @@ function normalizeCursorPaginated<T>(res: any, mapItem: (x: any) => T): CursorPa
 }
 
 export const api = {
-  login: async (b: { email: string; password: string }) => {
+  login: async (b: { email: string; password: string }, init?: RequestInit) => {
     currentUserPromise = null;
     const res = await req<{ access_token: string; user: User }>("/auth/login", {
       method: "POST",
       body: JSON.stringify(b),
+      ...init,
     });
+    if (typeof window !== "undefined") {
+      localStorage.setItem("siet_logged_in", "true");
+      localStorage.setItem("siet_user_role", res.user.role);
+    }
     currentUserPromise = Promise.resolve(res.user);
     return res.user;
   },
-  logout: async () => {
+  logout: async (init?: RequestInit) => {
     currentUserPromise = null;
-    const res = await req<unknown>("/auth/logout", { method: "POST" });
+    const res = await req<unknown>("/auth/logout", { method: "POST", ...init });
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("siet_logged_in");
+      localStorage.removeItem("siet_user_role");
+    }
     currentUserPromise = Promise.resolve(null);
     return res;
   },
-  me: () => req<User>("/auth/me"),
-  getCurrentUser: (forceRefresh = false): Promise<User | null> => {
+  me: (init?: RequestInit) => req<User>("/auth/me", init),
+  getCurrentUser: (forceRefresh = false, init?: RequestInit): Promise<User | null> => {
+    if (typeof window !== "undefined") {
+      const isLogged = localStorage.getItem("siet_logged_in");
+      if (isLogged !== "true") {
+        currentUserPromise = Promise.resolve(null);
+        return currentUserPromise;
+      }
+    }
     if (forceRefresh || !currentUserPromise) {
-      currentUserPromise = req<User>("/auth/me").catch(() => null);
+      currentUserPromise = req<User>("/auth/me", init).catch(() => {
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("siet_logged_in");
+          localStorage.removeItem("siet_user_role");
+        }
+        return null;
+      });
     }
     return currentUserPromise;
   },
   clearUserCache: () => {
     currentUserPromise = null;
   },
-  register: async (b: { name: string; email: string; password: string }) => {
+  register: async (b: { name: string; email: string; password: string }, init?: RequestInit) => {
     currentUserPromise = null;
     return req<{ id: string; email: string; email_verified: boolean }>("/auth/register", {
       method: "POST",
       body: JSON.stringify(b),
+      ...init,
     });
   },
 
@@ -245,6 +317,13 @@ export const api = {
     const res = await req<any[]>("/news/trending");
     return (Array.isArray(res) ? res : []).map(normalizeNewsItem);
   },
+  newsTaxonomy: async (q = "") => {
+    return req<any>(`/news/taxonomy${q}`);
+  },
+  newsArchived: async (q = "") => {
+    const res = await req<any>(`/news/archived${q}`);
+    return normalizePaginated(res, normalizeNewsItem);
+  },
   newsByDomain: async (d: string) => {
     const res = await req<any>(`/news/domain/${d}`);
     return normalizePaginated(res, normalizeNewsItem);
@@ -296,6 +375,13 @@ export const api = {
       achievements: data?.counts?.achievements ?? data?.totals?.magazines ?? data?.totals?.achievements ?? 0,
       users: data?.counts?.users ?? data?.totals?.users ?? 0,
     };
+    const todayAccuracy = data?.todayAccuracy ?? {
+      date: new Date().toISOString().split("T")[0],
+      verified: 0,
+      flagged: 0,
+      failed: 0,
+      total: 0,
+    };
     const recentActivity = Array.isArray(data?.recentActivity)
       ? data.recentActivity.map((act: any) => ({
           id: String(act.id ?? ""),
@@ -304,8 +390,10 @@ export const api = {
           details: act.details ?? act.title ?? "",
         }))
       : [];
-    return { counts, recentActivity };
+    return { counts, todayAccuracy, recentActivity };
   },
+
+  adminAnalytics: () => req<{ views: any[]; topContent: any[]; likesOverTime: any[] }>("/admin/analytics"),
 
   // Admin News
   adminNews: async (q = "") => {
@@ -321,6 +409,7 @@ export const api = {
     return normalizeNewsItem(res);
   },
   adminNewsDelete: (id: string) => req<{ success: boolean }>(`/admin/news/${id}`, { method: "DELETE" }),
+  adminTriggerNewsFetch: () => req<{ message: string }>("/admin/news/trigger-fetch", { method: "POST" }),
 
   // Admin Articles
   adminArticles: async (q = "") => {
@@ -362,6 +451,12 @@ export const api = {
   adminDomainCreate: (b: any) => req<Domain>("/admin/domains", { method: "POST", body: JSON.stringify(b) }),
   adminDomainUpdate: (slug: string, b: any) => req<Domain>(`/admin/domains/${slug}`, { method: "PUT", body: JSON.stringify(b) }),
   adminDomainDelete: (slug: string) => req<{ success: boolean }>(`/admin/domains/${slug}`, { method: "DELETE" }),
+
+  // Admin Tags
+  adminTags: () => req<{ id: number; name: string; slug: string }[]>("/admin/tags"),
+  adminTagCreate: (b: any) => req<{ id: number; name: string; slug: string }>("/admin/tags", { method: "POST", body: JSON.stringify(b) }),
+  adminTagUpdate: (id: number | string, b: any) => req<{ id: number; name: string; slug: string }>(`/admin/tags/${id}`, { method: "PUT", body: JSON.stringify(b) }),
+  adminTagDelete: (id: number | string) => req<{ success: boolean }>(`/admin/tags/${id}`, { method: "DELETE" }),
 
   // Admin Users
   adminUsers: () => req<User[]>("/admin/users"),

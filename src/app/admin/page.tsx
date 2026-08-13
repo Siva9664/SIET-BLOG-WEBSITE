@@ -172,6 +172,13 @@ function SystemHealthBadge({ connected }: { connected: boolean }) {
 
 export default function AdminDashboardPage() {
   const [counts, setCounts] = useState<DashboardCounts>(FALLBACK_COUNTS);
+  const [todayAccuracy, setTodayAccuracy] = useState<{ date: string; verified: number; flagged: number; failed: number; total: number }>({
+    date: new Date().toISOString().split("T")[0],
+    verified: 0,
+    flagged: 0,
+    failed: 0,
+    total: 0,
+  });
   const [activity, setActivity] = useState<ActivityItem[]>(FALLBACK_ACTIVITY);
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -191,6 +198,9 @@ export default function AdminDashboardPage() {
       try {
         const data = await api.adminDashboard();
         setCounts(data.counts ?? FALLBACK_COUNTS);
+        if (data.todayAccuracy) {
+          setTodayAccuracy(data.todayAccuracy);
+        }
         setActivity(data.recentActivity?.length > 0 ? data.recentActivity : FALLBACK_ACTIVITY);
         setIsConnected(true);
       } catch {
@@ -318,6 +328,67 @@ export default function AdminDashboardPage() {
             <p className="font-util text-[9px] text-ink-soft mt-1">{s.trend}</p>
           </Link>
         ))}
+      </section>
+
+      {/* ─── Today's Accuracy & Grounding Banner ────────────────────────────── */}
+      <section className="border border-line bg-paper-2 p-5 rounded-md shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🎯</span>
+            <div>
+              <h2 className="font-display text-body font-semibold text-ink">
+                Today&apos;s Ingestion & Grounding Accuracy ({todayAccuracy.date})
+              </h2>
+              <p className="font-util text-[10px] text-ink-soft uppercase tracking-wider">
+                Automated fact verification & accuracy grounding check for today&apos;s batch
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/admin/news?processing_status=flagged_for_review"
+            className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-xs font-util font-bold rounded transition-colors"
+          >
+            Inspect Flagged Articles →
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4">
+          <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded text-center">
+            <p className="font-util text-2xl font-bold text-emerald-700 dark:text-emerald-400">
+              {loading ? "—" : todayAccuracy.verified}
+            </p>
+            <p className="font-util text-[10px] uppercase tracking-wider text-emerald-800 dark:text-emerald-300 font-semibold mt-1">
+              ✓ Verified & Grounded
+            </p>
+          </div>
+
+          <div className="bg-amber-500/10 border border-amber-500/20 p-3 rounded text-center">
+            <p className="font-util text-2xl font-bold text-amber-700 dark:text-amber-400">
+              {loading ? "—" : todayAccuracy.flagged}
+            </p>
+            <p className="font-util text-[10px] uppercase tracking-wider text-amber-800 dark:text-amber-300 font-semibold mt-1">
+              ⚠️ Flagged For Review
+            </p>
+          </div>
+
+          <div className="bg-rose-500/10 border border-rose-500/20 p-3 rounded text-center">
+            <p className="font-util text-2xl font-bold text-rose-700 dark:text-rose-400">
+              {loading ? "—" : todayAccuracy.failed}
+            </p>
+            <p className="font-util text-[10px] uppercase tracking-wider text-rose-800 dark:text-rose-300 font-semibold mt-1">
+              ✖ Ingestion Failed
+            </p>
+          </div>
+
+          <div className="bg-blue-500/10 border border-blue-500/20 p-3 rounded text-center">
+            <p className="font-util text-2xl font-bold text-blue-700 dark:text-blue-400">
+              {loading ? "—" : todayAccuracy.total}
+            </p>
+            <p className="font-util text-[10px] uppercase tracking-wider text-blue-800 dark:text-blue-300 font-semibold mt-1">
+              📊 Total Today
+            </p>
+          </div>
+        </div>
       </section>
 
       {/* ─── Quick Actions Grid ───────────────────────────────────────────────── */}

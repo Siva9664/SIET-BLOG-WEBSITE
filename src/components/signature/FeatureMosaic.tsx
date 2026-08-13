@@ -100,6 +100,7 @@ export function FeatureMosaic({ featured, tiles = [] }: FeatureMosaicProps) {
             src={tile.image}
             alt={tile.title}
             fill
+            unoptimized
             sizes={isLarge ? "33vw" : "20vw"}
             className="object-cover grayscale contrast-110 transition-all duration-300 hover:grayscale-0 hover:contrast-100"
           />

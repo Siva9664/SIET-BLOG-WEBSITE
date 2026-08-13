@@ -1,41 +1,51 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 export function ScrollReveal() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
-    // Select elements to reveal
-    const elements = document.querySelectorAll(".reveal");
+    let observer: IntersectionObserver | null = null;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("revealed");
-            // Stop observing once animated into view to conserve resources
-            observer.unobserve(entry.target);
-          }
-        });
-      },
-      {
-        threshold: 0.05,
-        rootMargin: "0px 0px -40px 0px", // Trigger slightly before element is fully visible
-      }
-    );
+    // Postpone DOM mutations until React 19 hydration pass completes
+    const rafId = requestAnimationFrame(() => {
+      const elements = document.querySelectorAll(".reveal");
 
-    elements.forEach((el) => {
-      // Ensure it starts from clean slate
-      el.classList.remove("revealed");
-      observer.observe(el);
+      observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("revealed");
+              if (observer) observer.unobserve(entry.target);
+            }
+          });
+        },
+        {
+          threshold: 0.01,
+          rootMargin: "50px 0px 0px 0px",
+        }
+      );
+
+      elements.forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        if (rect.top < window.innerHeight && rect.bottom >= 0) {
+          el.classList.add("revealed");
+        } else {
+          observer?.observe(el);
+        }
+      });
     });
 
     return () => {
-      observer.disconnect();
+      cancelAnimationFrame(rafId);
+      if (observer) {
+        observer.disconnect();
+      }
     };
-  }, [pathname]); // Re-initialize observer on route transitions
+  }, [pathname, searchParams]);
 
   return null;
 }

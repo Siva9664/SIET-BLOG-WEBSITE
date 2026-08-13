@@ -1,5 +1,4 @@
-
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import User
@@ -11,25 +10,13 @@ class UserRepository(BaseRepository[User]):
         super().__init__(db, User)
 
     async def get_by_email(self, email: str) -> User | None:
-        """Fetches a user profile by email address."""
-        stmt = select(User).where(User.email == email)
+        """Fetches a user profile by email address (case-insensitive)."""
+        stmt = select(User).where(func.lower(User.email) == email.lower())
         result = await self.db.execute(stmt)
         return result.scalars().first()
 
     async def exists(self, email: str) -> bool:
-        """Checks if a user exists with the specified email address."""
-        stmt = select(User).where(User.email == email)
+        """Checks if a user exists with the specified email address (case-insensitive)."""
+        stmt = select(User).where(func.lower(User.email) == email.lower())
         result = await self.db.execute(stmt)
         return result.scalars().first() is not None
-
-    async def get_by_verification_token(self, token_hash: str) -> User | None:
-        """Fetches a user profile matching a specific verification token hash."""
-        stmt = select(User).where(User.verification_token_hash == token_hash)
-        result = await self.db.execute(stmt)
-        return result.scalars().first()
-
-    async def get_by_reset_token(self, token_hash: str) -> User | None:
-        """Fetches a user profile matching a specific reset token hash."""
-        stmt = select(User).where(User.reset_token_hash == token_hash)
-        result = await self.db.execute(stmt)
-        return result.scalars().first()

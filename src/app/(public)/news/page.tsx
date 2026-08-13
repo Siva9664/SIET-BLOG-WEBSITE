@@ -10,31 +10,43 @@ export const revalidate = 0;
 export default async function NewsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; domain?: string; tab?: string }>;
+  searchParams: Promise<{ page?: string; department?: string; subcategory?: string; tab?: string; q?: string }>;
 }) {
   const params = await searchParams;
   const pageNum = Math.max(1, Number(params.page || "1"));
-  const activeDomain = params.domain || "";
-  const tab = params.tab || ""; // "latest" | "trending" | ""
+  const department = params.department || "";
+  const subcategory = params.subcategory || "";
+  const tab = params.tab || ""; // "" or "today" (default: Today's news), "all_active", "latest"
+  const searchQuery = params.q || "";
 
-  let domains: Domain[] = [];
-  try {
-    domains = await api.domains();
-  } catch (error) {
-    console.error("Failed to load domains from backend API:", error);
-    domains = [];
-  }
+  const dateFilter = tab === "all_active" ? "all" : "today";
 
   let newsItems: NewsItem[] = [];
   let currentPage = pageNum;
   let totalPages = 1;
-  let isPaginated = true;
+  let totalItems = 0;
+  let isFallback = false;
+  let deptCounts: Record<string, number> = {};
+  let totalAllCount = 0;
+
+  try {
+    const taxonomyRes = await api.newsTaxonomy(`?date_filter=${dateFilter}`);
+    if (taxonomyRes && taxonomyRes.departments) {
+      deptCounts = taxonomyRes.departments;
+      totalAllCount = Number(Object.values(taxonomyRes.departments).reduce((a: any, b: any) => Number(a) + Number(b), 0));
+    }
+  } catch (err) {
+    console.warn("News taxonomy fetch error:", err);
+  }
 
   try {
     const queryParams = new URLSearchParams();
     if (pageNum > 1) queryParams.set("page", String(pageNum));
-    if (activeDomain) queryParams.set("domain", activeDomain);
+    if (department) queryParams.set("department", department);
+    if (subcategory) queryParams.set("subcategory", subcategory);
     if (tab) queryParams.set("tab", tab);
+    if (searchQuery) queryParams.set("q", searchQuery);
+    queryParams.set("date_filter", dateFilter);
 
     const queryString = queryParams.toString();
     const res = await api.news(queryString ? `?${queryString}` : "");
@@ -42,120 +54,143 @@ export default async function NewsPage({
     newsItems = res.items || [];
     currentPage = res.page || 1;
     totalPages = res.pages || 1;
-
-    if (tab === "latest" || tab === "trending") {
-      isPaginated = false;
-    }
+    totalItems = res.total || 0;
   } catch (error) {
     console.error("News API request failed:", error);
-    newsItems = [];
-    currentPage = 1;
-    totalPages = 1;
+    isFallback = true;
   }
 
-  // URL Path builders preserving both tab and domain
-  const getTabHref = (tabName: string) => {
+  const departmentDomains: Domain[] = [
+    { slug: "ai-ml", name: "AI / ML", count: deptCounts["ai-ml"] || 0 },
+    { slug: "cybersecurity", name: "Cybersecurity", count: deptCounts["cybersecurity"] || 0 },
+    { slug: "pcb-electronics", name: "PCB / Electronics", count: deptCounts["pcb-electronics"] || 0 },
+    { slug: "vlsi-semiconductor", name: "VLSI / Semiconductor", count: deptCounts["vlsi-semiconductor"] || 0 },
+    { slug: "robotics", name: "Robotics", count: deptCounts["robotics"] || 0 },
+    { slug: "ar-vr-xr", name: "AR / VR / XR", count: deptCounts["ar-vr-xr"] || 0 },
+    { slug: "iot", name: "IoT", count: deptCounts["iot"] || 0 },
+  ];
+
+  const getDepartmentFilterHref = (deptSlug: string) => {
     const p = new URLSearchParams();
-    if (tabName) p.set("tab", tabName);
-    if (activeDomain) p.set("domain", activeDomain);
+    if (deptSlug) p.set("department", deptSlug);
+    if (tab) p.set("tab", tab);
+    if (searchQuery) p.set("q", searchQuery);
     const qs = p.toString();
     return `/news${qs ? `?${qs}` : ""}`;
   };
 
-  const getDomainHref = (domainSlug: string) => {
+  const getTabHref = (tabName: string) => {
     const p = new URLSearchParams();
-    if (tab) p.set("tab", tab);
-    if (domainSlug) p.set("domain", domainSlug);
+    if (tabName) p.set("tab", tabName);
+    if (department) p.set("department", department);
+    if (searchQuery) p.set("q", searchQuery);
     const qs = p.toString();
     return `/news${qs ? `?${qs}` : ""}`;
   };
 
   return (
-    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
+    <main className="kitchen-page">
+      {isFallback && (
+        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
+          ⚠ Live news API offline — check backend connection
+        </div>
+      )}
+
       {/* Header */}
       <header className="flex flex-col gap-2 reveal">
-        <p className="font-util text-eyebrow text-accent uppercase tracking-widest">
-          SIET News Pipeline
-        </p>
-        <h1 className="font-display text-h1 text-ink font-bold tracking-tight">
-          Today's Headlines
+        <p className="eyebrow">Tech & Lab News · Daily Edition</p>
+        <h1 className="font-display text-h1 font-semibold leading-tight text-ink">
+          SIET News
         </h1>
-        <p className="font-sans text-body text-ink-soft max-w-2xl">
-          Live automated news research, technological developments, and research updates aggregated directly from global engineering feeds.
+        <p className="font-util text-xs text-ink-soft">
+          {tab === "all_active"
+            ? "Displaying all active non-archived news releases"
+            : "Showing today's fresh verified news updates"}
         </p>
       </header>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-6 border-b border-line pb-4 reveal">
-        <Link
-          href={getTabHref("")}
-          className={`font-util text-xs uppercase tracking-wider transition-colors pb-1 ${
-            !tab ? "text-accent border-b-2 border-accent font-semibold" : "text-ink-soft hover:text-ink"
-          }`}
-        >
-          All News
-        </Link>
-        <Link
-          href={getTabHref("latest")}
-          className={`font-util text-xs uppercase tracking-wider transition-colors pb-1 ${
-            tab === "latest" ? "text-accent border-b-2 border-accent font-semibold" : "text-ink-soft hover:text-ink"
-          }`}
-        >
-          Latest
-        </Link>
-        <Link
-          href={getTabHref("trending")}
-          className={`font-util text-xs uppercase tracking-wider transition-colors pb-1 ${
-            tab === "trending" ? "text-accent border-b-2 border-accent font-semibold" : "text-ink-soft hover:text-ink"
-          }`}
-        >
-          Trending
-        </Link>
+      {/* Single Department Filter Row with Live Counts (matches /articles pill filter style) */}
+      <div className="reveal">
+        <DomainFilter
+          domains={departmentDomains}
+          activeSlug={department}
+          hrefBuilder={getDepartmentFilterHref}
+          totalCount={totalAllCount || totalItems}
+        />
       </div>
 
-      {/* Domain Filters */}
-      {domains.length > 0 && (
-        <section className="reveal">
-          <DomainFilter
-            domains={domains}
-            activeSlug={activeDomain}
-            hrefBuilder={getDomainHref}
-          />
-        </section>
-      )}
+      {/* Feed Filters & Scope Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-3 reveal">
+        <div className="flex items-center gap-6">
+          <Link
+            href={getTabHref("")}
+            className={`font-util text-eyebrow tracking-[0.14em] uppercase transition-colors pb-1 border-b-2 ${
+              !tab || tab === "today" ? "border-accent text-accent font-bold" : "border-transparent text-ink-soft hover:text-ink"
+            }`}
+          >
+            Today&apos;s News ({totalItems})
+          </Link>
+          <Link
+            href={getTabHref("all_active")}
+            className={`font-util text-eyebrow tracking-[0.14em] uppercase transition-colors pb-1 border-b-2 ${
+              tab === "all_active" ? "border-accent text-accent font-bold" : "border-transparent text-ink-soft hover:text-ink"
+            }`}
+          >
+            All Active Feed
+          </Link>
+          <Link
+            href={getTabHref("latest")}
+            className={`font-util text-eyebrow tracking-[0.14em] uppercase transition-colors pb-1 border-b-2 ${
+              tab === "latest" ? "border-accent text-accent font-bold" : "border-transparent text-ink-soft hover:text-ink"
+            }`}
+          >
+            Latest
+          </Link>
+        </div>
 
-      {/* Articles Grid */}
+        <div className="flex items-center gap-4">
+          {department && (
+            <span className="font-util text-eyebrow text-ink-soft">
+              Active Dept: <strong className="text-accent">{department.toUpperCase()}</strong>
+            </span>
+          )}
+          <Link
+            href="/news/archive"
+            className="font-util text-eyebrow text-ink-soft hover:text-accent transition-colors flex items-center gap-1"
+          >
+            <span>📦</span> Archive Vault
+          </Link>
+        </div>
+      </div>
+
+      {/* News Articles Grid */}
       {newsItems.length > 0 ? (
-        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 reveal">
+        <div className="card-grid">
           {newsItems.map((item) => (
-            <ContentCard key={item.id} item={item} variant="news" />
+            <ContentCard key={item.id} variant="news" item={item} />
           ))}
-        </section>
+        </div>
       ) : (
-        <section className="reveal">
-          <EmptyState
-            message={
-              activeDomain
-                ? "No articles matched the selected filter combination."
-                : "No news articles are available currently."
-            }
-            actionHref="/news"
-            actionLabel="Clear filters"
-          />
-        </section>
+        <EmptyState
+          message={
+            department
+              ? `No articles currently cataloged for department '${department}'.`
+              : "No news updates available in the index for today."
+          }
+          actionHref={getTabHref("all_active")}
+          actionLabel="Browse All Active Feed"
+        />
       )}
 
       {/* Pagination */}
-      {isPaginated && totalPages > 1 && (
-        <section className="flex justify-center pt-6 reveal">
+      {totalPages > 1 && (
+        <div className="flex justify-center pt-8 border-t border-line">
           <Pagination
             page={currentPage}
             pages={totalPages}
-            basePath={
-              activeDomain ? `/news?domain=${activeDomain}` : "/news"
-            }
+            basePath={getTabHref(tab)}
           />
-        </section>
+        </div>
       )}
     </main>
   );

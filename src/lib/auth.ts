@@ -6,11 +6,11 @@ export async function getSession(): Promise<User | null> {
     const cookieStore = await cookies();
     const cookieHeader = cookieStore.toString();
 
-    if (!cookieHeader) {
+    if (!cookieHeader || !cookieHeader.includes("access_token=")) {
       return null;
     }
 
-    const BASE = `${process.env.NEXT_PUBLIC_API_BASE!}/api/v1`;
+    const BASE = `${process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000"}/api/v1`;
     const res = await fetch(`${BASE}/auth/me`, {
       headers: {
         "Content-Type": "application/json",

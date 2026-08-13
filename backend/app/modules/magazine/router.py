@@ -46,12 +46,15 @@ async def _magazine_page(
     count_query = select(func.count()).select_from(Magazine).where(Magazine.status == ContentStatus.PUBLISHED)
 
     if magazine_type:
-        try:
-            parsed_type = MagazineType(magazine_type)
-        except ValueError:
-            raise NotFoundException("Magazine type not found.")
-        query = query.where(Magazine.magazine_type == parsed_type)
-        count_query = count_query.where(Magazine.magazine_type == parsed_type)
+        target = magazine_type.strip().lower()
+        NATIVE_DB_TYPES = {"monthly", "quarterly", "annual", "special"}
+        if target in NATIVE_DB_TYPES:
+            matched_enum = MagazineType(target)
+            query = query.where(Magazine.magazine_type == matched_enum)
+            count_query = count_query.where(Magazine.magazine_type == matched_enum)
+        else:
+            # Non-native DB enum filter returns empty paginated response gracefully (200 OK)
+            return paginated_payload([], page, limit, 0)
 
     if year:
         query = query.where(Magazine.publication_year == year)
@@ -76,9 +79,11 @@ async def list_magazine(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     q: str | None = None,
+    type: str | None = None,
+    year: int | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    return await _magazine_page(db, request, page, limit, q=q)
+    return await _magazine_page(db, request, page, limit, magazine_type=type, year=year, q=q)
 
 
 @router.get("/type/{type}")

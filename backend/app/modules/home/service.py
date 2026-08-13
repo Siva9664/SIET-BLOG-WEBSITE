@@ -31,7 +31,7 @@ class HomeService:
             (
                 await self.db.execute(
                     select(News)
-                    .where(News.status == ContentStatus.PUBLISHED)
+                    .where(News.status == ContentStatus.PUBLISHED, News.is_archived == False)
                     .order_by(News.published_at.desc().nullslast(), News.id.desc())
                     .limit(6)
                 )
@@ -49,6 +49,7 @@ class HomeService:
                     .where(
                         TrendingMetric.content_kind == ContentKind.NEWS,
                         News.status == ContentStatus.PUBLISHED,
+                        News.is_archived == False,
                     )
                     .order_by(TrendingMetric.score.desc())
                     .limit(6)
@@ -57,6 +58,8 @@ class HomeService:
             .scalars()
             .all()
         )
+        if not trending_rows:
+            trending_rows = featured_rows[:6]
 
         # 3. Latest Articles (latest 8 published articles)
         article_rows = list(

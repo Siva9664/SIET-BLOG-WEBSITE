@@ -8,15 +8,46 @@ export type Author = {
   department?: string;
 };
 
+export interface DetailedSection {
+  heading: string;
+  paragraphs: string[];
+}
+
+export interface CoverageEntry {
+  id: string;
+  sourceName: string;
+  title: string;
+  url: string;
+  publishedAt: string;
+  isPrimary?: boolean;
+}
+
 export interface NewsItem {
   id: string;
   slug: string;
   title: string;
+  content?: string;
   aiSummary: string;
+  simpleExplanation?: string;
+  detailedSections?: DetailedSection[];
+  contentDepth?: "full" | "summary_only" | string;
+  contentSummary?: string;
+  detailedSummary?: string;
+  keyPoints?: string[];
+  technicalDetails?: string;
+  whyItMatters?: string;
+  studentRelevance?: string;
+  department?: string;
+  subcategory?: string;
+  canonicalUrl?: string;
+  author?: string;
+  verificationStatus?: "single_source" | "confirmed" | string;
+  coverageCount?: number;
+  coverage?: CoverageEntry[];
   sourceUrl: string;
   sourceName: string;
   domain: Domain;
-  tags: Tag[];
+  tags: Tag[] | string[];
   image?: string;
   publishedAt: string;
   trending?: boolean;

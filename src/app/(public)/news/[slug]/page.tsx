@@ -11,113 +11,7 @@ import {
   BookmarkButton,
   ShareButton,
 } from "@/components/shared";
-import type { NewsItem, Domain } from "@/lib/types";
-
-// Static fallback data for news details
-const FALLBACK_DOMAINS: Domain[] = [
-  { slug: "machine-learning", name: "Machine Learning", count: 42 },
-  { slug: "robotics", name: "Robotics", count: 19 },
-  { slug: "campus-research", name: "Campus Research", count: 27 },
-  { slug: "ethics", name: "AI Ethics", count: 12 },
-];
-
-const FALLBACK_NEWS: NewsItem[] = [
-  {
-    id: "n1",
-    slug: "open-models-campus-lab",
-    title: "Open models shape a new week of student experiments",
-    aiSummary: "The lab tracked model releases, classroom prototypes, and a practical discussion on evaluation methods for student-built systems.",
-    sourceUrl: "https://example.com",
-    sourceName: "AI Research Desk",
-    domain: FALLBACK_DOMAINS[0],
-    tags: [
-      { slug: "models", name: "Models" },
-      { slug: "research", name: "Research" },
-    ],
-    image: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=900&q=80",
-    publishedAt: "2026-07-08T10:00:00.000Z",
-    trending: true,
-    likes: 87,
-  },
-  {
-    id: "n2",
-    slug: "robotics-navigation-updates",
-    title: "Robotics team publishes indoor navigation benchmark",
-    aiSummary: "Initial testing of LiDAR slam shows consistent map resolution under varied department lighting conditions.",
-    sourceUrl: "https://example.com",
-    sourceName: "Robotics Press",
-    domain: FALLBACK_DOMAINS[1],
-    tags: [{ slug: "navigation", name: "Navigation" }],
-    image: "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=900&q=80",
-    publishedAt: "2026-07-07T14:30:00.000Z",
-    likes: 42,
-  },
-  {
-    id: "n3",
-    slug: "ai-symposium-schedule",
-    title: "SIET AI Symposium schedule and registrations open",
-    aiSummary: "The annual department symposium schedules three student keynotes, a poster rail, and a mini-hackathon.",
-    sourceUrl: "https://example.com",
-    sourceName: "Department Bulletin",
-    domain: FALLBACK_DOMAINS[2],
-    tags: [{ slug: "events", name: "Events" }],
-    publishedAt: "2026-07-06T09:00:00.000Z",
-    likes: 19,
-  },
-  {
-    id: "n4",
-    slug: "ethics-playbook-release",
-    title: "Ethics cell releases transparent AI documentation handbook",
-    aiSummary: "Providing practical templates for undergraduate research projects to log model bias, data provenance, and carbon footprints.",
-    sourceUrl: "https://example.com",
-    sourceName: "Ethics Board",
-    domain: FALLBACK_DOMAINS[3],
-    tags: [{ slug: "ethics", name: "Ethics" }],
-    image: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=900&q=80",
-    publishedAt: "2026-07-05T16:00:00.000Z",
-    likes: 56,
-  },
-];
-
-const FALLBACK_NEWS_DETAIL: Record<string, NewsItem & { body?: string }> = {
-  "open-models-campus-lab": {
-    ...FALLBACK_NEWS[0],
-    body: "During the past week, the SIET AI Research Lab focused its energy on testing open-source small language models. Students set up benchmarking clusters, evaluated inference speed on local student machines, and established clean workflows for running quantized versions of new releases. The discussion also covered metric reliability and human-in-the-loop validation patterns.",
-  },
-  "robotics-navigation-updates": {
-    ...FALLBACK_NEWS[1],
-    body: "Indoor autonomous navigation remains a key bottleneck for department projects. This benchmark outlines accuracy rates across corridors, classrooms, and cafeteria locations using custom filter methods on low-cost LiDAR rigs.",
-  },
-  "ai-symposium-schedule": {
-    ...FALLBACK_NEWS[2],
-    body: "The computer science department announces the schedule for the annual SIET AI Symposium. Registrations are open starting today. Events include student workshops, paper presentations, and a hackathon with industrial mentors.",
-  },
-  "ethics-playbook-release": {
-    ...FALLBACK_NEWS[3],
-    body: "This handbook outlines practical procedures for student developers. It lists model evaluation parameters, testing checkpoints, and documentation templates to ensure responsible deployment of AI tools in public and academic spaces.",
-  },
-};
-
-const getFallbackDetail = (slug: string): NewsItem & { body?: string } => {
-  return (
-    FALLBACK_NEWS_DETAIL[slug] || {
-      id: `n-fallback-${slug}`,
-      slug: slug,
-      title: slug
-        .split("-")
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(" "),
-      aiSummary: "Automated AI Summary for this archived article from the SIET news index.",
-      sourceUrl: "https://example.com",
-      sourceName: "SIET News Source",
-      domain: FALLBACK_DOMAINS[0],
-      tags: [{ slug: "news", name: "News" }],
-      publishedAt: new Date().toISOString(),
-      likes: 10,
-      body: "This is a fallback placeholder for the news article. The local API is currently offline and no cached content matches this specific slug.",
-    }
-  );
-};
+import type { NewsItem, CoverageEntry, DetailedSection } from "@/lib/types";
 
 type Params = Promise<{
   slug: string;
@@ -126,131 +20,359 @@ type Params = Promise<{
 export default async function NewsDetailPage(props: { params: Params }) {
   const { slug } = await props.params;
 
-  let item: NewsItem & { body?: string };
+  let item: any;
   let related: NewsItem[] = [];
-
   let isFallback = false;
 
   try {
-    // Fetch individual news item
     item = await api.newsBySlug(slug);
   } catch (error) {
-    console.warn(`News detail API for slug '${slug}' offline. Loading fallback.`, error);
-    item = getFallbackDetail(slug);
+    console.warn(`News detail API for slug '${slug}' offline or not found.`, error);
     isFallback = true;
+    item = {
+      id: "fallback-1",
+      slug: slug,
+      title: slug.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+      content: "Detailed technology article overview.",
+      aiSummary: "AI summary of key engineering developments across sources.",
+      simpleExplanation: "Simple 2-4 sentence plain language explanation of recent engineering developments.",
+      detailedSections: [
+        {
+          heading: "Overview & Key Announcement",
+          paragraphs: ["Detailed technical analysis of recent progress across multiple reporting outlets."]
+        }
+      ],
+      contentDepth: "summary_only",
+      keyPoints: ["• Core performance improvements", "• Architectural changes", "• Industry standards shift"],
+      technicalDetails: "System design patterns and benchmarking results.",
+      whyItMatters: "Enables developers to leverage optimized runtime patterns.",
+      studentRelevance: "For SIET students: Provides practical reference for senior design projects.",
+      department: "ai-ml",
+      subcategory: "General",
+      verificationStatus: "single_source",
+      coverageCount: 1,
+      coverage: [
+        {
+          id: "cov-1",
+          sourceName: "Tech News Outlet",
+          title: slug.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" "),
+          url: "https://techcrunch.com",
+          publishedAt: new Date().toISOString(),
+          isPrimary: true,
+        }
+      ],
+      sourceUrl: "https://techcrunch.com",
+      sourceName: "Tech News Source",
+      author: "Engineering Desk",
+      publishedAt: new Date().toISOString(),
+      likes: 12,
+    };
   }
 
   try {
-    // Fetch related news from same domain
-    const res = await api.newsByDomain(item.domain.slug);
-    related = res.items.filter((r) => r.slug !== slug).slice(0, 4);
+    const res = await api.newsByDomain(item.department || "ai-ml");
+    related = (res.items || []).filter((r: any) => r.slug !== slug).slice(0, 4);
   } catch (error) {
-    console.warn("Related news API call failed. Using filtered fallbacks.", error);
-    isFallback = true;
-    related = FALLBACK_NEWS.filter((r) => r.domain.slug === item.domain.slug && r.slug !== slug).slice(
-      0,
-      4,
-    );
-    if (related.length === 0) {
-      related = FALLBACK_NEWS.filter((r) => r.slug !== slug).slice(0, 4);
-    }
+    console.warn("Related news API call failed.", error);
   }
 
-  const dateString = new Date(item.publishedAt).toLocaleDateString("en", {
+  const dateString = new Date(item.publishedAt).toLocaleDateString("en-US", {
     month: "short",
     day: "2-digit",
     year: "numeric",
   });
 
+  const isConfirmed = item.verificationStatus === "confirmed" || (item.coverageCount && item.coverageCount >= 2);
+  const coverageList: CoverageEntry[] = item.coverage && item.coverage.length > 0
+    ? item.coverage
+    : [
+        {
+          id: "1",
+          sourceName: item.sourceName || "Primary Outlet",
+          title: item.title,
+          url: item.sourceUrl || "#",
+          publishedAt: item.publishedAt,
+          isPrimary: true,
+        }
+      ];
+
+  const detailedSections: DetailedSection[] = item.detailedSections && item.detailedSections.length > 0
+    ? item.detailedSections
+    : [
+        {
+          heading: "Detailed Breakdown",
+          paragraphs: [item.detailedSummary || item.content || "Overview text."]
+        }
+      ];
+
+  const isSummaryOnly = item.contentDepth === "summary_only";
+
   return (
-    <main className="kitchen-page">
+    <main className="kitchen-page max-w-4xl mx-auto px-4 py-8 space-y-8">
       {isFallback && (
-        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
-          ⚠ Showing sample content — live data unavailable
+        <div className="bg-amber-500 text-black px-4 py-2 text-center text-sm font-semibold rounded">
+          ⚠ Showing sample content — live article data unavailable
         </div>
       )}
-      {/* Breadcrumb Header */}
-      <header className="space-y-4">
+
+      {/* Header & Verification Metadata */}
+      <header className="space-y-4 reveal">
         <Breadcrumb
           items={[
             { label: "Home", href: "/" },
-            { label: "News", href: "/news" },
+            { label: "SIET News", href: "/news" },
+            { label: (item.department || "AI/ML").toUpperCase(), href: `/news?department=${item.department || "ai-ml"}` },
             { label: item.title },
           ]}
         />
+
+        <div className="flex flex-wrap items-center gap-3 pt-2">
+          <TagChip label={(item.department || "AI-ML").toUpperCase()} href={`/news?department=${item.department || "ai-ml"}`} active />
+          {item.subcategory && item.subcategory !== "General" && (
+            <TagChip label={item.subcategory} />
+          )}
+
+          {/* Verification Badge */}
+          {isConfirmed ? (
+            <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/40 text-emerald-700 dark:text-emerald-400 text-xs font-mono rounded-full font-bold flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              ✓ Confirmed by {item.coverageCount || coverageList.length} sources
+            </span>
+          ) : (
+            <span className="px-3 py-1 bg-line/60 border border-line text-ink-soft text-xs font-mono rounded-full">
+              Reported by {item.sourceName || "Primary Source"}
+            </span>
+          )}
+        </div>
+
         <h1 className="font-display text-h1 font-semibold leading-tight text-ink">
           {item.title}
         </h1>
-        {/* Eyebrow utility row */}
-        <div className="flex items-center gap-4 text-ink-soft font-util text-eyebrow uppercase tracking-wider py-1 border-y border-line/50">
-          <span>{item.domain.name}</span>
-          <span className="text-line">·</span>
-          <span>{dateString}</span>
+
+        <div className="flex flex-wrap items-center justify-between text-ink-soft font-util text-eyebrow border-y border-line py-3">
+          <div className="flex items-center gap-3">
+            <span>Primary: <strong className="text-ink">{item.sourceName || "Original Publisher"}</strong></span>
+            <span>•</span>
+            <span>By: <strong className="text-ink">{item.author || "Tech Desk"}</strong></span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span>Published: {dateString}</span>
+            <span>•</span>
+            <span className="text-accent">
+              {isSummaryOnly ? "1 min summary" : "~3 min read"}
+            </span>
+          </div>
         </div>
       </header>
 
       {/* Hero Image */}
       {item.image && (
-        <div className="relative aspect-video w-full overflow-hidden border border-line bg-paper-2">
+        <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-line bg-line/20 shadow-sm reveal">
           <Image
             src={item.image}
             alt={item.title}
             fill
             priority
-            sizes="100vw"
+            unoptimized
+            sizes="(max-width: 1200px) 100vw, 1200px"
             className="object-cover"
           />
         </div>
       )}
 
-      {/* AI Summary Ruled Block */}
-      <div className="border border-line bg-paper-2 p-6 space-y-2">
-        <p className="eyebrow text-accent">AI Summary</p>
-        <p className="font-body text-lede italic text-ink leading-relaxed">
-          {item.aiSummary}
+      {/* 1. SIMPLE EXPLANATION (2-4 lines plain language dek) */}
+      <div className="rounded-lg border border-line bg-line/30 p-6 space-y-2 reveal">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-accent font-util text-eyebrow tracking-widest uppercase font-semibold">
+            <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+            Simple Explanation
+          </div>
+          <span className="font-util text-eyebrow text-ink-soft">Plain Language • No Jargon</span>
+        </div>
+        <p className="text-lg text-ink font-body leading-relaxed italic">
+          "{item.simpleExplanation || item.contentSummary || item.aiSummary}"
         </p>
       </div>
 
-      {/* Main Body Content */}
-      {item.body && (
-        <article className="font-body text-body text-ink space-y-6 max-w-2xl leading-relaxed">
-          {item.body.split("\n\n").map((para, idx) => (
-            <p key={idx}>{para}</p>
-          ))}
-        </article>
-      )}
+      {/* 2. DETAILED EXPLANATION — DYNAMIC SUBHEADINGS */}
+      <section className="space-y-8 pt-2 reveal">
+        <div className="flex items-center justify-between border-b border-line pb-3">
+          <h2 className="font-display text-h2 font-semibold text-ink flex items-center gap-2">
+            Detailed Explanation
+          </h2>
+          {isSummaryOnly && (
+            <span className="font-util text-eyebrow text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-full">
+              ⚡ Limited source detail available — showing publisher summary
+            </span>
+          )}
+        </div>
 
-      {/* External Source Link */}
-      <div className="pt-2">
-        <a
-          href={item.sourceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="explore-link font-util text-eyebrow uppercase tracking-wider inline-flex items-center gap-1 hover:text-accent"
-        >
-          {item.sourceName} <span className="text-[10px] font-sans">↗</span>
-        </a>
-      </div>
-
-      {/* Tags Row */}
-      {item.tags && item.tags.length > 0 && (
-        <div className="flex flex-wrap gap-2 pt-6 border-t border-line">
-          {item.tags.map((tag) => (
-            <TagChip key={tag.slug} label={tag.name} href={`/news?tag=${tag.slug}`} />
+        {/* Render dynamic sections mapped over detailed_sections */}
+        <div className="space-y-8">
+          {detailedSections.map((sec: DetailedSection, idx: number) => (
+            <div key={idx} className="space-y-3">
+              <h3 className="font-display text-h3 font-medium text-ink flex items-center gap-2">
+                <span className="text-accent font-util text-eyebrow font-semibold">{idx + 1}.</span>
+                {sec.heading}
+              </h3>
+              <div className="text-ink text-body leading-relaxed space-y-4 pl-6 border-l-2 border-line">
+                {sec.paragraphs && sec.paragraphs.length > 0 ? (
+                  sec.paragraphs.map((p: string, pIdx: number) => (
+                    <p key={pIdx}>{p}</p>
+                  ))
+                ) : (
+                  <p>{item.content}</p>
+                )}
+              </div>
+            </div>
           ))}
+        </div>
+
+        {/* Key Technical Takeaways */}
+        {item.keyPoints && item.keyPoints.length > 0 && (
+          <div className="rounded-lg border border-line bg-line/20 p-6 space-y-3 mt-8">
+            <h3 className="font-util text-eyebrow font-bold uppercase tracking-wider text-accent flex items-center gap-2">
+              <span>⚡</span> Key Technical Takeaways
+            </h3>
+            <ul className="space-y-2 text-ink text-sm font-body">
+              {item.keyPoints.map((point: string, idx: number) => (
+                <li key={idx} className="flex items-start gap-2.5">
+                  <span className="text-accent font-bold">›</span>
+                  <span>{point.replace(/^•\s*/, '')}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Technical Architecture & Impact */}
+        {item.technicalDetails && (
+          <div className="space-y-3 pt-4">
+            <h3 className="font-display text-h3 font-medium text-ink flex items-center gap-2">
+              Technical Architecture & Impact
+            </h3>
+            <p className="text-ink text-body leading-relaxed font-body">
+              {item.technicalDetails}
+            </p>
+          </div>
+        )}
+
+        {/* Why It Matters */}
+        {item.whyItMatters && (
+          <div className="space-y-3 pt-4">
+            <h3 className="font-display text-h3 font-medium text-ink flex items-center gap-2">
+              Why This Matters for Engineers
+            </h3>
+            <p className="text-ink text-body leading-relaxed font-body">
+              {item.whyItMatters}
+            </p>
+          </div>
+        )}
+
+        {/* Student Relevance Banner */}
+        {item.studentRelevance && (
+          <div className="rounded-lg border border-accent/30 bg-accent/5 p-6 space-y-2">
+            <div className="flex items-center gap-2 text-accent font-util text-eyebrow uppercase tracking-widest font-semibold">
+              🎓 SIET Engineering Student Relevance
+            </div>
+            <p className="text-sm text-ink leading-relaxed font-body">
+              {item.studentRelevance}
+            </p>
+          </div>
+        )}
+
+        {/* Tags */}
+        {item.tags && item.tags.length > 0 && (
+          <div className="space-y-3 pt-4">
+            <h4 className="font-util text-eyebrow uppercase tracking-wider text-ink-soft">Related Technologies</h4>
+            <div className="flex flex-wrap gap-2">
+              {item.tags.map((tag: any, idx: number) => {
+                const tagName = typeof tag === "string" ? tag : tag.name || tag.slug;
+                return <TagChip key={idx} label={tagName} href={`/news?q=${encodeURIComponent(tagName)}`} />;
+              })}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Coverage Section — Multi-source Reporting Breakdown */}
+      <section className="rounded-lg border border-line bg-line/20 p-6 space-y-4 reveal">
+        <div className="flex items-center justify-between border-b border-line pb-3">
+          <div className="space-y-1">
+            <h3 className="font-display text-h3 font-medium text-ink flex items-center gap-2">
+              <span>🌐</span> Multi-Source Coverage
+            </h3>
+            <p className="font-util text-eyebrow text-ink-soft">
+              Reported by {coverageList.length} independent outlet{coverageList.length > 1 ? "s" : ""}
+            </p>
+          </div>
+          {isConfirmed && (
+            <span className="px-3 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 font-util text-eyebrow rounded-full font-bold">
+              ✓ Verified Story
+            </span>
+          )}
+        </div>
+
+        <div className="divide-y divide-line">
+          {coverageList.map((cov: CoverageEntry, idx: number) => (
+            <div key={idx} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-line/40 px-3 rounded transition-colors">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-util text-eyebrow font-bold text-accent">{cov.sourceName}</span>
+                  {cov.isPrimary && (
+                    <span className="px-2 py-0.5 bg-accent/10 border border-accent/30 text-accent text-[10px] font-util rounded uppercase">
+                      Primary
+                    </span>
+                  )}
+                </div>
+                <h4 className="text-sm font-semibold text-ink">
+                  "{cov.title}"
+                </h4>
+                <p className="font-util text-eyebrow text-ink-soft">
+                  {new Date(cov.publishedAt).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}
+                </p>
+              </div>
+
+              {cov.url && (
+                <a
+                  href={cov.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 px-3 py-1.5 bg-line/60 hover:bg-line text-accent border border-line text-xs font-util rounded transition-colors inline-flex items-center gap-1.5 self-start sm:self-center"
+                >
+                  Read on {cov.sourceName} ↗
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* External Original Source Attribution Button */}
+      {item.sourceUrl && (
+        <div className="pt-4 border-t border-line flex items-center justify-between reveal">
+          <span className="font-util text-eyebrow text-ink-soft">Canonical Article Source</span>
+          <a
+            href={item.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-4 py-2 bg-accent/10 hover:bg-accent/20 text-accent border border-accent/30 text-xs font-util rounded transition-colors inline-flex items-center gap-2 font-bold"
+          >
+            Read Original Article on {item.sourceName || "Publisher"} ↗
+          </a>
         </div>
       )}
 
-      {/* Social Interactions Action Bar */}
-      <div className="flex items-center gap-4 py-4 border-y border-line">
-        <LikeButton type="news" slug={item.slug} count={item.likes} />
+      {/* Social Interactions */}
+      <div className="flex items-center gap-4 py-4 border-y border-line reveal">
+        <LikeButton type="news" slug={item.slug} count={item.likes || 0} />
         <BookmarkButton type="news" slug={item.slug} bookmarked={item.bookmarked} />
         <ShareButton title={item.title} url={`/news/${item.slug}`} />
       </div>
 
       {/* Related News Rail */}
       {related.length > 0 && (
-        <div className="pt-8 border-t border-line">
+        <div className="pt-8 border-t border-line reveal">
           <SectionRail
             eyebrow="Related updates"
             title="Recommended Reading"
@@ -259,7 +381,7 @@ export default async function NewsDetailPage(props: { params: Params }) {
             exploreHref="/news"
             exploreLabel="Explore all news"
           >
-            {related.map((r) => (
+            {related.map((r: any) => (
               <ContentCard key={r.id} variant="news" item={r} />
             ))}
           </SectionRail>

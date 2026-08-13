@@ -18,7 +18,6 @@ else:
         "pool_size": settings.POSTGRES_POOL_SIZE,
         "max_overflow": settings.POSTGRES_MAX_OVERFLOW,
         "pool_recycle": 3600,
-        "pool_pre_ping": True,
     }
 
 engine = create_async_engine(

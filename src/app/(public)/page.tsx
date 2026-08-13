@@ -261,8 +261,8 @@ export default async function HomePage() {
 
   const featured = realFeatured.length ? toMosaicItem(realFeatured[0]) : FALLBACK_MOSAIC_FEATURED;
   const tiles = realFeatured.length > 1 ? realFeatured.slice(1).map(toMosaicItem) : FALLBACK_MOSAIC_TILES;
-  const news = realTrending.length ? realTrending : FALLBACK_NEWS;
-  const newsCount = homeData.newsCount || 87;
+  const news = realTrending.length ? realTrending : realFeatured.length ? realFeatured : FALLBACK_NEWS;
+  const newsCount = realTrending.length || realFeatured.length || 87;
   const articles = realArticles.length ? realArticles : FALLBACK_ARTICLES;
   const articlesCount = homeData.articlesCount || 142;
   const domains = homeData.domains || FALLBACK_DOMAINS;
