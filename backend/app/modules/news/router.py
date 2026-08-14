@@ -78,6 +78,14 @@ async def _news_page(
         today_pred = func.date(func.coalesce(News.published_at, News.created_at).op("AT TIME ZONE")("Asia/Kolkata")) == today_kolkata
         query = query.where(today_pred)
         count_query = count_query.where(today_pred)
+    elif date_filter == "past":
+        import zoneinfo
+        from datetime import datetime
+        kolkata_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
+        today_kolkata = datetime.now(kolkata_tz).date()
+        past_pred = func.date(func.coalesce(News.published_at, News.created_at).op("AT TIME ZONE")("Asia/Kolkata")) < today_kolkata
+        query = query.where(past_pred)
+        count_query = count_query.where(past_pred)
 
     if department:
         query = query.where(News.department == department)
@@ -111,7 +119,36 @@ async def _news_page(
     rows = list(result.scalars().all())
     domains = await get_domain_map(db)
     media = await get_media_map(db)
-    items = [await serialize_news(db, row, domains=domains, media=media, current_user_id=_current_user_id(request)) for row in rows]
+
+    news_ids = [row.id for row in rows]
+    user_id = _current_user_id(request)
+
+    from app.modules.contract_helpers import (
+        get_coverage_map,
+        get_like_counts_map,
+        get_user_bookmarks_set,
+        get_user_likes_set,
+    )
+
+    cov_map = await get_coverage_map(db, news_ids)
+    likes_map = await get_like_counts_map(db, ContentKind.NEWS, news_ids)
+    u_likes = await get_user_likes_set(db, user_id, ContentKind.NEWS, news_ids)
+    u_bookmarks = await get_user_bookmarks_set(db, user_id, ContentKind.NEWS, news_ids)
+
+    items = [
+        await serialize_news(
+            db,
+            row,
+            domains=domains,
+            media=media,
+            current_user_id=user_id,
+            coverage_map=cov_map,
+            likes_map=likes_map,
+            user_likes=u_likes,
+            user_bookmarks=u_bookmarks,
+        )
+        for row in rows
+    ]
     return paginated_payload(items, page, limit, total)
 
 
@@ -182,7 +219,7 @@ async def trending_news(
 
 @router.get("/taxonomy")
 async def get_taxonomy(
-    date_filter: str | None = Query("today"),
+    date_filter: str | None = Query("all"),
     db: AsyncSession = Depends(get_db)
 ):
     """

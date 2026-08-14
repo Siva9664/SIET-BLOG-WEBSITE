@@ -5,7 +5,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { Breadcrumb, ContentCard, LoadingSkeleton, EmptyState, Pagination } from "@/components/shared";
+import { Breadcrumb, ContentCard, LoadingSkeleton, EmptyState, Pagination, ErrorState } from "@/components/shared";
 import type { User, NewsItem, Article, Achievement } from "@/lib/types";
 
 interface GroupedData {
@@ -13,68 +13,6 @@ interface GroupedData {
   articles: Article[];
   magazine: Achievement[];
 }
-
-const MOCK_USER: User = {
-  id: "u-mock-reader",
-  name: "Dr. Babus",
-  email: "reader@siet.edu",
-  role: "user"
-};
-
-const MOCK_LIKES: GroupedData = {
-  news: [
-    {
-      id: "n1",
-      slug: "open-models-campus-lab",
-      title: "Open models shape a new week of student experiments",
-      aiSummary: "The lab tracked model releases, classroom prototypes, and a practical discussion on evaluation methods for student-built systems.",
-      sourceUrl: "https://example.com",
-      sourceName: "AI Research Desk",
-      domain: { slug: "machine-learning", name: "Machine Learning", count: 42 },
-      tags: [
-        { slug: "models", name: "Models" },
-        { slug: "research", name: "Research" },
-      ],
-      image: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=900&q=80",
-      publishedAt: "2026-07-08T10:00:00.000Z",
-      trending: true,
-      likes: 87,
-    }
-  ],
-  articles: [],
-  magazine: []
-};
-
-const MOCK_BOOKMARKS: GroupedData = {
-  news: [],
-  articles: [
-    {
-      id: "art1",
-      slug: "building-responsible-rag",
-      title: "What we learned building a responsible retrieval system",
-      excerpt: "A student note on source quality, citation habits, and why retrieval interfaces often create better reading.",
-      body: "<p>Retrieval-Augmented Generation (RAG) is quickly becoming the standard architecture.</p>",
-      author: {
-        id: "a1",
-        name: "Kaviya Raman",
-        role: "Student Author",
-        avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=600&q=80",
-        department: "Artificial Intelligence and Data Science",
-      },
-      domain: { slug: "ethics", name: "AI Ethics", count: 12 },
-      tags: [
-        { slug: "rag", name: "RAG" },
-        { slug: "systems", name: "Systems" },
-      ],
-      cover: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=900&q=80",
-      publishedAt: "2026-07-06T10:00:00.000Z",
-      readingMinutes: 6,
-      likes: 142,
-      bookmarked: true,
-    }
-  ],
-  magazine: []
-};
 
 type CombinedItem =
   | { variant: "news"; item: NewsItem; date: number }
@@ -107,87 +45,61 @@ function ProfileContent() {
   const [likes, setLikes] = useState<GroupedData>({ news: [], articles: [], magazine: [] });
   const [bookmarks, setBookmarks] = useState<GroupedData>({ news: [], articles: [], magazine: [] });
   const [loading, setLoading] = useState(true);
-
-  const [isFallback, setIsFallback] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const tab = searchParams.get("tab") === "bookmarks" ? "bookmarks" : "likes";
   const pageParam = searchParams.get("page");
   const currentPage = pageParam ? parseInt(pageParam, 10) : 1;
   const itemsPerPage = 6;
 
-  useEffect(() => {
-    let active = true;
-
-    async function loadData() {
-      try {
-        const u = await api.getCurrentUser();
-        if (!active) return;
-        
-        // If the user is not a user, redirect to login
-        if (!u || u.role !== "user") {
-          router.push("/login");
-          return;
-        }
-
-        setUser(u);
-
-        // Keep local storage flags updated
-        localStorage.setItem("siet_logged_in", "true");
-        localStorage.setItem("siet_user_role", u.role);
-
-        const [likesData, bookmarksData] = await Promise.all([
-          api.myLikes(),
-          api.myBookmarks()
-        ]);
-
-        if (!active) return;
-        setLikes(likesData);
-        setBookmarks(bookmarksData);
-        setLoading(false);
-      } catch (err: any) {
-        console.warn("Profile API offline or unauthorized. Checking offline session flags.", err);
-        setIsFallback(true);
-        if (!active) return;
-
-        // If it's a 401 Unauthorized or a network failure but no login flag is present, redirect to login
-        const hasSessionFlag = typeof window !== "undefined" && localStorage.getItem("siet_logged_in") === "true";
-        const sessionRole = typeof window !== "undefined" && localStorage.getItem("siet_user_role");
-
-        if (err.message && err.message.startsWith("401")) {
-          localStorage.removeItem("siet_logged_in");
-          localStorage.removeItem("siet_user_role");
-          router.push("/login");
-          return;
-        }
-
-        // SECURITY: these localStorage flags are client-spoofable and must
-        // NEVER gate real data or be treated as authoritative — they only unlock the
-        // offline MOCK_LIKES/MOCK_BOOKMARKS demo fallback when the backend is unreachable.
-        // Do not extend this pattern to admin checks or real user data anywhere else.
-        if (!hasSessionFlag || sessionRole !== "user") {
-          router.push("/login");
-          return;
-        }
-
-        // Network error/backend offline AND valid offline session is present: fall back to mock data
-        setUser(MOCK_USER);
-        setLikes(MOCK_LIKES);
-        setBookmarks(MOCK_BOOKMARKS);
-        setLoading(false);
+  async function loadData() {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const u = await api.getCurrentUser();
+      
+      if (!u) {
+        router.push("/login");
+        return;
       }
+
+      setUser(u);
+
+      const [likesData, bookmarksData] = await Promise.all([
+        api.myLikes().catch(() => ({ news: [], articles: [], magazine: [] })),
+        api.myBookmarks().catch(() => ({ news: [], articles: [], magazine: [] }))
+      ]);
+
+      setLikes(likesData);
+      setBookmarks(bookmarksData);
+    } catch (err: any) {
+      if (err?.message && err.message.startsWith("401")) {
+        router.push("/login");
+        return;
+      }
+      setLoadError(err?.message || "Failed to load user profile data.");
+    } finally {
+      setLoading(false);
     }
+  }
 
+  useEffect(() => {
     loadData();
-
-    return () => {
-      active = false;
-    };
   }, [router]);
 
   if (loading) {
     return (
       <main className="kitchen-page py-12">
         <LoadingSkeleton lines={8} />
+      </main>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <main className="kitchen-page">
+        <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Reader Profile" }]} />
+        <ErrorState title="Profile Error" message={loadError} onRetry={loadData} />
       </main>
     );
   }
@@ -218,11 +130,6 @@ function ProfileContent() {
 
   return (
     <main className="kitchen-page">
-      {isFallback && (
-        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
-          ⚠ Showing sample content — live data unavailable
-        </div>
-      )}
       {/* Header */}
       <header className="space-y-4">
         <Breadcrumb items={[{ label: "Home", href: "/" }, { label: "Reader Profile" }]} />
@@ -246,11 +153,9 @@ function ProfileContent() {
             <button
               onClick={async () => {
                 await api.logout();
-                localStorage.removeItem("siet_logged_in");
-                localStorage.removeItem("siet_user_role");
                 window.location.href = "/";
               }}
-              className="font-util text-eyebrow uppercase tracking-wider text-ink border border-line px-4 py-2 hover:bg-paper-2 transition-colors"
+              className="font-util text-eyebrow uppercase tracking-wider text-ink border border-line px-4 py-2 hover:bg-paper-2 transition-colors cursor-pointer"
             >
               Sign Out
             </button>

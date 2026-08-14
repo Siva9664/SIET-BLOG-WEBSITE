@@ -71,21 +71,45 @@ export interface Article {
   bookmarked?: boolean;
 }
 
-export interface Achievement {
+export interface MagazinePage {
+  id: string;
+  pageNumber: number;
+  imageUrl: string;
+  extractedText: string;
+}
+
+export interface MagazineTOCEntry {
+  id: string;
+  pageNumber: number;
+  heading: string;
+}
+
+export interface MagazineIssue {
   id: string;
   slug: string;
   title: string;
   description: string;
-  student: Author;
-  department: string;
   year: number;
   type: string;
-  domain: Domain;
+  status?: "processing" | "published" | "failed" | string;
+  failureReason?: string | null;
+  pageCount?: number;
+  pdfUrl?: string;
+  coverImageUrl?: string;
+  issueDate?: string;
+  pages?: MagazinePage[];
+  tocEntries?: MagazineTOCEntry[];
   gallery: string[];
-  certificateUrl?: string;
   projectLinks: { label: string; url: string }[];
   likes: number;
   bookmarked?: boolean;
+}
+
+export interface Achievement extends MagazineIssue {
+  student: Author;
+  department: string;
+  domain: Domain;
+  certificateUrl?: string;
 }
 
 export interface Paginated<T> {

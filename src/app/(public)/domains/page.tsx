@@ -1,17 +1,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { Breadcrumb, EmptyState } from "@/components/shared";
+import { Breadcrumb, EmptyState, ErrorState } from "@/components/shared";
 import type { Domain } from "@/lib/types";
-
-// Static fallbacks
-const FALLBACK_DOMAINS: Domain[] = [
-  { slug: "ai-tech-news", name: "AI Tech News", count: 24 },
-  { slug: "industry", name: "Industry", count: 18 },
-  { slug: "medical-tech", name: "Medical Tech", count: 15 },
-  { slug: "programming", name: "Programming", count: 32 },
-  { slug: "it-news", name: "IT News", count: 21 },
-];
 
 const PIN_COLORS = [
   "#8A1E1E", // Crimson Red
@@ -23,23 +14,16 @@ const PIN_COLORS = [
 
 export default async function DomainsPage() {
   let domains: Domain[] = [];
-  let isFallback = false;
+  let loadError: string | null = null;
 
   try {
     domains = await api.domains();
-  } catch (error) {
-    console.warn("Failed to fetch domains list, using fallback.", error);
-    domains = FALLBACK_DOMAINS;
-    isFallback = true;
+  } catch (error: any) {
+    loadError = error?.message || "Failed to fetch domains from backend API.";
   }
 
   return (
     <main className="kitchen-page">
-      {isFallback && (
-        <div className="bg-amber-500 text-black px-4 py-2.5 text-center text-sm font-semibold select-none rounded mb-6">
-          ⚠ Showing sample content — live data unavailable
-        </div>
-      )}
       {/* Breadcrumb Header */}
       <header className="space-y-4">
         <Breadcrumb
@@ -58,7 +42,9 @@ export default async function DomainsPage() {
 
       {/* Topics Tile Grid */}
       <section className="pt-8">
-        {domains.length > 0 ? (
+        {loadError ? (
+          <ErrorState title="Failed to Load Domains" message={loadError} />
+        ) : domains.length > 0 ? (
           <div className="topics-flex-container">
             {domains.map((domain: Domain, index) => {
               const pinColor = PIN_COLORS[index % PIN_COLORS.length];

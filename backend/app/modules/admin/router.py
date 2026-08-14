@@ -31,7 +31,8 @@ from app.modules.contract_helpers import (
 from app.modules.news.repository import NewsRepository
 from app.modules.news.schemas import NewsPublish
 from app.modules.news.service import NewsService
-from app.shared.auth.dependencies import require_admin
+from pydantic import BaseModel, EmailStr
+from app.shared.auth.dependencies import require_admin, require_super_admin
 from app.shared.types.content import ContentStatus
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -210,6 +211,108 @@ async def admin_delete_user(
         raise HTTPException(status_code=404, detail="User not found")
     await repo.delete(user)
     return None
+
+# ADMIN ACCOUNTS MANAGEMENT (SUPER_ADMIN ONLY)
+class AdminAccountCreate(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    role: str = "ADMIN"
+
+
+@router.get("/admins")
+async def list_admin_accounts(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_super_admin),
+):
+    stmt = (
+        select(User)
+        .where(User.role.in_(["ADMIN", "SUPER_ADMIN", "admin", "super_admin"]))
+        .order_by(User.id.asc())
+    )
+    users = list((await db.execute(stmt)).scalars().all())
+    return [
+        {
+            "id": str(u.id),
+            "name": u.name,
+            "email": u.email,
+            "role": u.role.upper(),
+            "is_active": u.is_active,
+            "created_at": u.created_at.isoformat() if hasattr(u, "created_at") and u.created_at else None,
+        }
+        for u in users
+    ]
+
+
+@router.post("/admins", status_code=status.HTTP_201_CREATED)
+async def create_admin_account(
+    payload: AdminAccountCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_super_admin),
+):
+    from app.core.security import hash_password
+
+    repo = UserRepository(db)
+    if await repo.exists(payload.email):
+        raise HTTPException(status_code=409, detail="An account with this email address already exists.")
+
+    target_role = payload.role.upper().strip()
+    if target_role not in ("ADMIN", "SUPER_ADMIN"):
+        target_role = "ADMIN"
+
+    user = User(
+        name=payload.name.strip(),
+        email=payload.email.strip().lower(),
+        password_hash=hash_password(payload.password),
+        role=target_role,
+        is_active=True,
+        is_verified=True,
+        email_verified=True,
+    )
+    user = await repo.create(user)
+    await db.commit()
+    await repo.db.refresh(user)
+    return {
+        "id": str(user.id),
+        "name": user.name,
+        "email": user.email,
+        "role": user.role.upper(),
+        "is_active": user.is_active,
+    }
+
+
+@router.delete("/admins/{admin_id}")
+async def delete_admin_account(
+    admin_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_super_admin),
+):
+    from sqlalchemy import func
+
+    if current_user.id == admin_id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own administrative account.")
+
+    repo = UserRepository(db)
+    target_user = await repo.get_by_id(admin_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Admin account not found.")
+
+    if target_user.role.upper() == "SUPER_ADMIN":
+        super_admin_count_stmt = (
+            select(func.count())
+            .select_from(User)
+            .where(User.role.in_(["SUPER_ADMIN", "super_admin"]))
+        )
+        super_admin_count = await db.scalar(super_admin_count_stmt) or 0
+        if super_admin_count <= 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot delete account: At least one Super Administrator must remain registered."
+            )
+
+    await repo.delete(target_user)
+    await db.commit()
+    return {"message": f"Admin account '{target_user.email}' deleted successfully."}
 
 # ARTICLES CRUD
 from app.modules.articles.repository import ArticleRepository

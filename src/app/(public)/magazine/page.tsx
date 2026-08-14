@@ -1,120 +1,20 @@
 import * as React from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
-import { ContentCard, Pagination, EmptyState, TagChip } from "@/components/shared";
-import type { Achievement, Domain, Paginated } from "@/lib/types";
+import { Pagination, EmptyState, TagChip } from "@/components/shared";
+import type { MagazineIssue } from "@/lib/types";
 
-// Static fallbacks for achievements
-const FALLBACK_DOMAINS: Domain[] = [
-  { slug: "machine-learning", name: "Machine Learning", count: 42 },
-  { slug: "robotics", name: "Robotics", count: 19 },
-  { slug: "campus-research", name: "Campus Research", count: 27 },
-  { slug: "ethics", name: "AI Ethics", count: 12 },
-];
-
-const FALLBACK_ACHIEVEMENTS: Achievement[] = [
-  {
-    id: "ac1",
-    slug: "smart-india-hackathon-2026",
-    title: "First place win at national Smart India Hackathon 2026",
-    description: "The AI Research Lab team won first place for their real-time edge translation system for agricultural diagnostics.",
-    student: {
-      id: "s1",
-      name: "Sanjay Kumar",
-      role: "Team Lead",
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80",
-    },
-    department: "Artificial Intelligence and Data Science",
-    year: 2026,
-    type: "Hackathon",
-    domain: FALLBACK_DOMAINS[0],
-    gallery: [
-      "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=900&q=80",
-      "https://images.unsplash.com/photo-1515187029135-18ee286d815b?auto=format&fit=crop&w=900&q=80",
-    ],
-    certificateUrl: "https://example.com/sih-2026-cert.pdf",
-    projectLinks: [
-      { label: "GitHub Repository", url: "https://github.com/siet-ai/sih-2026" },
-      { label: "Project Demo", url: "https://sih2026.siet.edu" }
-    ],
-    likes: 32,
-    bookmarked: false,
-  },
-  {
-    id: "ac2",
-    slug: "ieee-robotics-paper",
-    title: "IEEE robotics paper on low-cost LiDAR calibration accepted",
-    description: "A student paper analyzing uncertainty parameters in local mapping rigs was published in the IEEE Robotics Letters journal.",
-    student: {
-      id: "s2",
-      name: "Pooja Hegde",
-      role: "Lead Author",
-      avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=600&q=80",
-    },
-    department: "Computer Science",
-    year: 2025,
-    type: "Publication",
-    domain: FALLBACK_DOMAINS[1],
-    gallery: [
-      "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=900&q=80",
-    ],
-    certificateUrl: "https://example.com/ieee-paper-cert.pdf",
-    projectLinks: [
-      { label: "IEEE Publisher Link", url: "https://ieeexplore.ieee.org" }
-    ],
-    likes: 45,
-    bookmarked: false,
-  },
-  {
-    id: "ac3",
-    slug: "autonomous-rover-demo",
-    title: "Autonomous navigation rover successfully demoed to board",
-    description: "Students successfully demonstrated a micro-RTOS rover steering and mapping a warehouse simulation layout.",
-    student: {
-      id: "s3",
-      name: "Hari Prasad",
-      role: "Hardware Architect",
-      avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=80",
-    },
-    department: "Mechatronics",
-    year: 2025,
-    type: "Project",
-    domain: FALLBACK_DOMAINS[1],
-    gallery: [
-      "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=900&q=80",
-    ],
-    projectLinks: [
-      { label: "Demo Video", url: "https://youtube.com/siet-rover" }
-    ],
-    likes: 21,
-    bookmarked: false,
-  }
-];
-
-const TYPES = [
-  { label: "All Types", value: "" },
-  { label: "Hackathons", value: "Hackathon" },
-  { label: "Projects", value: "Project" },
-  { label: "Publications", value: "Publication" },
-];
-
-const YEARS = [
-  { label: "All Years", value: "" },
-  { label: "2026", value: "2026" },
-  { label: "2025", value: "2025" },
-  { label: "2024", value: "2024" },
-];
-
-const DEPARTMENTS = [
-  { label: "All Departments", value: "" },
-  { label: "AI & DS", value: "Artificial Intelligence and Data Science" },
-  { label: "Computer Science", value: "Computer Science" },
-  { label: "Mechatronics", value: "Mechatronics" },
+const FREQUENCIES = [
+  { label: "All Editions", value: "" },
+  { label: "Monthly", value: "monthly" },
+  { label: "Quarterly", value: "quarterly" },
+  { label: "Annual", value: "annual" },
+  { label: "Special", value: "special" },
 ];
 
 type SearchParams = Promise<{
   type?: string;
   year?: string;
-  department?: string;
   page?: string;
 }>;
 
@@ -122,149 +22,157 @@ export default async function MagazinePage(props: { searchParams: SearchParams }
   const searchParams = await props.searchParams;
   const activeType = searchParams.type || "";
   const activeYear = searchParams.year || "";
-  const activeDept = searchParams.department || "";
   const pageNum = parseInt(searchParams.page || "1", 10);
 
-  let achievements: Achievement[] = [];
+  let issues: MagazineIssue[] = [];
   let currentPage = pageNum;
   let totalPages = 1;
-  let isPaginated = true;
-
-  let isFallback = false;
 
   try {
-    if (activeType) {
-      const res = await api.magByType(activeType);
-      achievements = res.items ?? [];
-      currentPage = res.page ?? 1;
-      totalPages = res.pages ?? 1;
-
-      if (activeYear) {
-        achievements = achievements.filter((a) => a.year.toString() === activeYear);
-      }
-    } else if (activeYear) {
-      const res = await api.magByYear(parseInt(activeYear, 10));
-      achievements = res.items ?? [];
-      currentPage = res.page ?? 1;
-      totalPages = res.pages ?? 1;
-    } else {
-      const q = `?page=${pageNum}`;
-      const res = await api.magazine(q);
-      achievements = res.items ?? [];
-      currentPage = res.page ?? 1;
-      totalPages = res.pages ?? 1;
-    }
+    const q = `?page=${pageNum}${activeType ? `&type=${activeType}` : ""}${activeYear ? `&year=${activeYear}` : ""}`;
+    const res = await api.magazine(q);
+    issues = res.items ?? [];
+    currentPage = res.page ?? 1;
+    totalPages = res.pages ?? 1;
   } catch (error) {
     console.error("Magazine API request error:", error);
-    achievements = [];
-    currentPage = 1;
-    totalPages = 1;
-    isPaginated = false;
+    issues = [];
   }
 
-  // Filter department client-side
-  if (activeDept) {
-    achievements = achievements.filter((a) => a.department === activeDept);
-    isPaginated = false;
-  }
-
-  // Query-param URL builders for the filters
   const buildHref = (key: string, value: string) => {
     const params = new URLSearchParams();
     if (key === "type") {
       if (value) params.set("type", value);
       if (activeYear) params.set("year", activeYear);
-      if (activeDept) params.set("department", activeDept);
     } else if (key === "year") {
       if (activeType) params.set("type", activeType);
       if (value) params.set("year", value);
-      if (activeDept) params.set("department", activeDept);
-    } else if (key === "department") {
-      if (activeType) params.set("type", activeType);
-      if (activeYear) params.set("year", activeYear);
-      if (value) params.set("department", value);
     }
     const qs = params.toString();
     return `/magazine${qs ? `?${qs}` : ""}`;
   };
 
   return (
-    <main className="kitchen-page">
-      {/* Header */}
-      <header className="flex flex-col gap-2 reveal">
-        <p className="eyebrow">SIET Magazine</p>
+    <main className="kitchen-page space-y-8">
+      {/* Editorial Header */}
+      <header className="flex flex-col gap-2 border-b border-line pb-6 reveal">
+        <div className="flex items-center justify-between">
+          <p className="eyebrow">SIET Publications</p>
+          <span className="font-util text-[10px] uppercase tracking-wider text-ink-soft bg-paper-3 px-2 py-0.5 border border-line">
+            Official College Issues
+          </span>
+        </div>
         <h1 className="font-display text-h1 font-semibold leading-tight text-ink">
-          Student Achievements
+          SIET Tech Magazine &amp; Newsletters
         </h1>
+        <p className="font-body text-body text-ink-soft max-w-2xl mt-1">
+          Explore curated campus research digests, department innovations, and technical publications in high-fidelity interactive digital issues.
+        </p>
       </header>
 
-      {/* Filter Dashboard */}
-      <div className="flex flex-col gap-4 py-4 border-y border-line reveal">
-        {/* Type Filter */}
+      {/* Filter Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-4 py-3 border-b border-line">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="font-util text-eyebrow text-ink-soft uppercase w-20">Type:</span>
+          <span className="font-util text-eyebrow text-ink-soft uppercase">Edition:</span>
           <div className="flex flex-wrap gap-2">
-            {TYPES.map((t) => (
+            {FREQUENCIES.map((f) => (
               <TagChip
-                key={t.value}
-                active={activeType === t.value}
-                label={t.label}
-                href={buildHref("type", t.value)}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Year Filter */}
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="font-util text-eyebrow text-ink-soft uppercase w-20">Year:</span>
-          <div className="flex flex-wrap gap-2">
-            {YEARS.map((y) => (
-              <TagChip
-                key={y.value}
-                active={activeYear === y.value}
-                label={y.label}
-                href={buildHref("year", y.value)}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Department Filter */}
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="font-util text-eyebrow text-ink-soft uppercase w-20">Dept:</span>
-          <div className="flex flex-wrap gap-2">
-            {DEPARTMENTS.map((d) => (
-              <TagChip
-                key={d.value}
-                active={activeDept === d.value}
-                label={d.label}
-                href={buildHref("department", d.value)}
+                key={f.value}
+                active={activeType === f.value}
+                label={f.label}
+                href={buildHref("type", f.value)}
               />
             ))}
           </div>
         </div>
       </div>
 
-      {/* Achievements Grid */}
-      {achievements.length > 0 ? (
-        <div className="card-grid">
-          {achievements.map((item) => (
-            <ContentCard key={item.id} variant="achievement" item={item} />
+      {/* Issue Listing Grid */}
+      {issues.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {issues.map((issue) => (
+            <article
+              key={issue.id}
+              className="border border-line bg-paper hover:shadow-md transition-all flex flex-col justify-between group overflow-hidden"
+            >
+              <div>
+                {/* Cover Image Container */}
+                <Link href={`/magazine/${issue.slug}`} className="block relative bg-paper-3 border-b border-line aspect-[3/4] overflow-hidden">
+                  {issue.coverImageUrl ? (
+                    <img
+                      src={issue.coverImageUrl}
+                      alt={issue.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-paper-2">
+                      <span className="font-display text-h3 font-semibold text-ink-soft">SIET</span>
+                      <span className="font-util text-[10px] uppercase tracking-wider text-ink-soft mt-1">
+                        Tech Digest
+                      </span>
+                    </div>
+                  )}
+                  <div className="absolute top-3 right-3 bg-ink text-paper font-util text-[9px] uppercase tracking-wider px-2 py-1 shadow-xs">
+                    {(issue.pageCount || 0) > 0 ? `${issue.pageCount} Pages` : "PDF Issue"}
+                  </div>
+                </Link>
+
+                {/* Content Details */}
+                <div className="p-6 space-y-3">
+                  <div className="flex items-center gap-2 font-util text-[10px] uppercase tracking-wider text-ink-soft">
+                    <span className="text-accent font-semibold">{issue.type}</span>
+                    <span>·</span>
+                    <span>
+                      {new Date(issue.issueDate || Date.now()).toLocaleDateString("en-US", {
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </span>
+                  </div>
+
+                  <h2 className="font-display text-h3 font-semibold text-ink group-hover:text-accent transition-colors leading-snug">
+                    <Link href={`/magazine/${issue.slug}`}>{issue.title}</Link>
+                  </h2>
+
+                  {issue.description && (
+                    <p className="font-body text-body-sm text-ink-soft line-clamp-3 leading-relaxed">
+                      {issue.description}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Link Footer */}
+              <div className="px-6 pb-6 pt-2 border-t border-line/50 flex justify-between items-center bg-paper-2">
+                <Link
+                  href={`/magazine/${issue.slug}`}
+                  className="font-util text-eyebrow uppercase tracking-wider text-ink group-hover:text-accent flex items-center gap-1.5 transition-colors font-semibold"
+                >
+                  Read Interactive Issue →
+                </Link>
+
+                {issue.pdfUrl && (
+                  <a
+                    href={issue.pdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-util text-[10px] text-ink-soft hover:text-ink uppercase tracking-wider underline"
+                  >
+                    PDF Direct
+                  </a>
+                )}
+              </div>
+            </article>
           ))}
         </div>
       ) : (
-        <EmptyState actionHref="/magazine" actionLabel="Clear all filters" />
+        <EmptyState actionHref="/magazine" actionLabel="View all issues" />
       )}
 
       {/* Pagination */}
-      {isPaginated && totalPages > 1 && (
+      {totalPages > 1 && (
         <div className="flex justify-center pt-8 border-t border-line">
-          <Pagination
-            page={currentPage}
-            pages={totalPages}
-            basePath={`/magazine`}
-          />
+          <Pagination page={currentPage} pages={totalPages} basePath="/magazine" />
         </div>
       )}
     </main>

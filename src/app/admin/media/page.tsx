@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
+import { ErrorState } from "@/components/shared";
 
 interface MediaItem {
   id: string;
@@ -11,24 +12,10 @@ interface MediaItem {
   uploadedAt: string;
 }
 
-const FALLBACK_MEDIA: MediaItem[] = [
-  {
-    id: "m1",
-    url: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=400&q=80",
-    filename: "classroom_prototype_v1.jpg",
-    uploadedAt: "2026-07-08T10:00:00.000Z",
-  },
-  {
-    id: "m2",
-    url: "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&w=400&q=80",
-    filename: "lidar_positioning_slam.jpg",
-    uploadedAt: "2026-07-07T14:30:00.000Z",
-  },
-];
-
 export default function AdminMediaLibraryPage() {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -37,12 +24,13 @@ export default function AdminMediaLibraryPage() {
 
   const loadMedia = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.adminMedia();
-      setItems(res);
-    } catch (err) {
-      console.warn("Admin media API offline, loading static media mock fallbacks.", err);
-      setItems(FALLBACK_MEDIA);
+      setItems(res || []);
+    } catch (err: any) {
+      setItems([]);
+      setLoadError(err?.message || "Failed to load media assets from server.");
     } finally {
       setLoading(false);
     }
@@ -60,17 +48,8 @@ export default function AdminMediaLibraryPage() {
     try {
       const newMedia = await api.adminMediaUpload(fd);
       setItems((prev) => [newMedia, ...prev]);
-    } catch (err) {
-      console.error("Upload failed:", err);
-      // Fallback: simulate upload locally
-      const mockUrl = URL.createObjectURL(file);
-      const mockItem: MediaItem = {
-        id: `m-mock-${Date.now()}`,
-        url: mockUrl,
-        filename: file.name,
-        uploadedAt: new Date().toISOString(),
-      };
-      setItems((prev) => [mockItem, ...prev]);
+    } catch (err: any) {
+      alert(err?.message || "Media upload failed.");
     } finally {
       setUploading(false);
     }
@@ -105,9 +84,8 @@ export default function AdminMediaLibraryPage() {
     try {
       await api.adminMediaDelete(id);
       setItems((prev) => prev.filter((item) => item.id !== id));
-    } catch (err) {
-      console.warn("Delete failed. Removing offline item locally.", err);
-      setItems((prev) => prev.filter((item) => item.id !== id));
+    } catch (err: any) {
+      alert(err?.message || "Failed to delete media file.");
     } finally {
       setConfirmDeleteId(null);
     }
@@ -168,7 +146,9 @@ export default function AdminMediaLibraryPage() {
           Uploaded Assets
         </h2>
 
-        {loading ? (
+        {loadError ? (
+          <ErrorState title="Failed to Load Media Library" message={loadError} onRetry={loadMedia} />
+        ) : loading ? (
           <div className="p-8 text-center font-display text-xs italic text-ink-soft">
             Querying media records...
           </div>

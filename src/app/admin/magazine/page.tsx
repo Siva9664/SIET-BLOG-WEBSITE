@@ -1,246 +1,150 @@
 "use client";
 
 import * as React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
-import { CursorPagination } from "@/components/shared";
-import type { Achievement, Domain } from "@/lib/types";
+import type { MagazineIssue, User } from "@/lib/types";
+import { ErrorState } from "@/components/shared";
 
-// Fallbacks
-const FALLBACK_DOMAINS: Domain[] = [
-  { slug: "machine-learning", name: "Machine Learning", count: 42 },
-  { slug: "robotics", name: "Robotics", count: 19 },
-  { slug: "campus-research", name: "Campus Research", count: 27 },
-  { slug: "ethics", name: "AI Ethics", count: 12 },
-];
-
-const FALLBACK_ACHIEVEMENTS: Achievement[] = [
-  {
-    id: "ac1",
-    slug: "smart-india-hackathon-2026",
-    title: "First place win at national Smart India Hackathon 2026",
-    description: "The AI Research Lab team won first place for their real-time edge translation system for agricultural diagnostics.",
-    student: {
-      id: "s1",
-      name: "Sanjay Kumar",
-      role: "Team Lead",
-      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80",
-    },
-    department: "Artificial Intelligence and Data Science",
-    year: 2026,
-    type: "Hackathon",
-    domain: FALLBACK_DOMAINS[0],
-    gallery: [
-      "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=900&q=80",
-    ],
-    certificateUrl: "https://example.com/sih-2026-cert.pdf",
-    projectLinks: [
-      { label: "GitHub Repository", url: "https://github.com/siet-ai/sih-2026" },
-    ],
-    likes: 12,
-    bookmarked: false,
-  },
-];
-
-export default function AdminMagazineCRUDPage() {
-  const [items, setItems] = useState<Achievement[]>([]);
-  const [domains, setDomains] = useState<Domain[]>(FALLBACK_DOMAINS);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([null]);
-  const [hasMore, setHasMore] = useState(false);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+export default function AdminMagazinePage() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [issues, setIssues] = useState<MagazineIssue[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Drawer / Form State
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [editItem, setEditItem] = useState<Achievement | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  // Form Fields
+  // Upload Form State
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [title, setTitle] = useState("");
-  const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
-  const [studentName, setStudentName] = useState("");
-  const [studentAvatar, setStudentAvatar] = useState("");
-  const [department, setDepartment] = useState("");
-  const [year, setYear] = useState(2026);
-  const [type, setType] = useState("Hackathon");
-  const [domainSlug, setDomainSlug] = useState("");
-  const [galleryCsv, setGalleryCsv] = useState("");
-  const [certificateUrl, setCertificateUrl] = useState("");
-  const [projectLinksJson, setProjectLinksJson] = useState("[]");
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [magazineType, setMagazineType] = useState("monthly");
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Delete Confirm ID
+  // Replace PDF Modal State
+  const [replaceIssue, setReplaceIssue] = useState<MagazineIssue | null>(null);
+  const [replaceFile, setReplaceFile] = useState<File | null>(null);
+  const [replacing, setReplacing] = useState(false);
+  const [replaceError, setReplaceError] = useState<string | null>(null);
+  const replaceFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Delete State
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  // Load Data
-  const loadMagazine = async (currentCursor: string | null) => {
+  const loadIssues = async () => {
     setLoading(true);
+    setError(null);
     try {
-      const res = await api.adminMagazine(currentCursor ? `?cursor=${currentCursor}` : "");
-      setItems(res.items);
-      setHasMore(res.pageInfo.has_more);
-      setNextCursor(res.pageInfo.next_cursor);
-    } catch (err) {
-      console.warn("Admin magazine API offline, loading static achievements mock fallbacks.", err);
-      setItems(FALLBACK_ACHIEVEMENTS);
-      setHasMore(false);
-      setNextCursor(null);
+      const data = await api.adminListMagazines();
+      setIssues(data);
+    } catch (err: any) {
+      console.error("Failed to load magazines:", err);
+      setError(err?.message || "Failed to query magazine issues from API.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleNext = () => {
-    if (nextCursor) {
-      setCursorHistory((prev) => [...prev, nextCursor]);
-      setCursor(nextCursor);
-    }
-  };
-
-  const handlePrevious = () => {
-    if (cursorHistory.length > 1) {
-      const newHistory = cursorHistory.slice(0, -1);
-      const prevCursor = newHistory[newHistory.length - 1];
-      setCursorHistory(newHistory);
-      setCursor(prevCursor);
-    }
-  };
-
   useEffect(() => {
-    loadMagazine(cursor);
-  }, [cursor]);
+    api.getCurrentUser().then((u) => {
+      setCurrentUser(u);
+      setAuthChecked(true);
+      if (u && u.role?.toUpperCase() === "SUPER_ADMIN") {
+        loadIssues();
+      }
+    });
 
-  useEffect(() => {
-    api.domains()
-      .then(setDomains)
-      .catch(() => setDomains(FALLBACK_DOMAINS));
+    const interval = setInterval(() => {
+      api.adminListMagazines().then(setIssues).catch(() => {});
+    }, 5000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Open Drawer for Create
-  const handleOpenCreate = () => {
-    setEditItem(null);
+  if (authChecked && currentUser && currentUser.role?.toUpperCase() !== "SUPER_ADMIN") {
+    return (
+      <ErrorState
+        title="Permission Denied"
+        message="You do not have Super Administrator permissions required to upload or delete magazine issues."
+        onRetry={() => (window.location.href = "/admin")}
+      />
+    );
+  }
+
+  const handleOpenUpload = () => {
     setTitle("");
-    setSlug("");
     setDescription("");
-    setStudentName("Jane Doe");
-    setStudentAvatar("");
-    setDepartment("Artificial Intelligence and Data Science");
-    setYear(2026);
-    setType("Hackathon");
-    setDomainSlug(domains[0]?.slug || "");
-    setGalleryCsv("");
-    setCertificateUrl("");
-    setProjectLinksJson("[]");
-    setFormError(null);
-    setIsDrawerOpen(true);
+    setYear(new Date().getFullYear());
+    setMagazineType("monthly");
+    setFile(null);
+    setUploadError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    setIsUploadOpen(true);
   };
 
-  // Open Drawer for Edit
-  const handleOpenEdit = (item: Achievement) => {
-    setEditItem(item);
-    setTitle(item.title);
-    setSlug(item.slug);
-    setDescription(item.description || "");
-    setStudentName(item.student?.name || "");
-    setStudentAvatar(item.student?.avatar || "");
-    setDepartment(item.department || "");
-    setYear(item.year || 2026);
-    setType(item.type || "Hackathon");
-    setDomainSlug(item.domain?.slug || domains[0]?.slug || "");
-    setGalleryCsv(item.gallery?.join(", ") || "");
-    setCertificateUrl(item.certificateUrl || "");
-    setProjectLinksJson(JSON.stringify(item.projectLinks || [], null, 2));
-    setFormError(null);
-    setIsDrawerOpen(true);
-  };
-
-  // Submit Drawer Form
-  const handleFormSubmit = async (e: React.FormEvent) => {
+  const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !slug || !domainSlug || !studentName || !department) {
-      setFormError("Title, Slug, Domain, Student Name, and Department fields are required.");
+    if (!title.trim() || !file) {
+      setUploadError("Please provide an Issue Title and select a PDF file.");
       return;
     }
 
-    // Verify JSON structure
-    let parsedLinks = [];
+    setUploading(true);
+    setUploadError(null);
+
     try {
-      parsedLinks = JSON.parse(projectLinksJson);
-      if (!Array.isArray(parsedLinks)) {
-        throw new Error("Project Links must be a JSON array.");
-      }
+      const formData = new FormData();
+      formData.append("title", title.trim());
+      formData.append("description", description.trim());
+      formData.append("publication_year", String(year));
+      formData.append("magazine_type", magazineType);
+      formData.append("file", file);
+
+      await api.adminUploadMagazine(formData);
+      setIsUploadOpen(false);
+      loadIssues();
     } catch (err: any) {
-      setFormError(`Invalid Project Links JSON: ${err.message}`);
-      return;
-    }
-
-    setSubmitting(true);
-    setFormError(null);
-
-    const activeDomain = domains.find((d) => d.slug === domainSlug) || FALLBACK_DOMAINS[0];
-
-    const galleryArray = galleryCsv
-      .split(",")
-      .map((g) => g.trim())
-      .filter(Boolean);
-
-    const payload = {
-      title,
-      slug,
-      description,
-      student: {
-        id: editItem?.student.id || `s-mock-${Date.now()}`,
-        name: studentName,
-        avatar: studentAvatar,
-      },
-      department,
-      year: Number(year),
-      type,
-      domain: activeDomain,
-      gallery: galleryArray,
-      certificateUrl: certificateUrl || undefined,
-      projectLinks: parsedLinks,
-      likes: editItem?.likes || 0,
-      bookmarked: editItem?.bookmarked || false,
-    };
-
-    try {
-      if (editItem) {
-        await api.adminMagazineUpdate(editItem.id, payload);
-      } else {
-        await api.adminMagazineCreate(payload);
-      }
-      setIsDrawerOpen(false);
-      loadMagazine(cursor);
-    } catch (err) {
-      console.error("Save failure:", err);
-      // Client-side local fallback update to simulate saves offline
-      const mockSavedItem: Achievement = {
-        id: editItem?.id || `ac-mock-${Date.now()}`,
-        ...payload,
-      };
-
-      if (editItem) {
-        setItems(items.map((i) => (i.id === editItem.id ? mockSavedItem : i)));
-      } else {
-        setItems([mockSavedItem, ...items]);
-      }
-      setIsDrawerOpen(false);
+      console.error("Upload failure:", err);
+      setUploadError(err?.message || "Failed to upload magazine PDF.");
     } finally {
-      setSubmitting(false);
+      setUploading(false);
     }
   };
 
-  // Handle Delete
+  const handleReplaceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!replaceIssue || !replaceFile) {
+      setReplaceError("Please select a new PDF file.");
+      return;
+    }
+
+    setReplacing(true);
+    setReplaceError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", replaceFile);
+
+      await api.adminReplaceMagazinePdf(replaceIssue.id, formData);
+      setReplaceIssue(null);
+      setReplaceFile(null);
+      loadIssues();
+    } catch (err: any) {
+      console.error("Replace failure:", err);
+      setReplaceError(err?.message || "Failed to replace magazine PDF.");
+    } finally {
+      setReplacing(false);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
-      await api.adminMagazineDelete(id);
-      loadMagazine(cursor);
-    } catch (err) {
-      console.warn("Delete call failed. Applying offline item removal.", err);
-      setItems(items.filter((i) => i.id !== id));
+      await api.adminDeleteMagazine(id);
+      loadIssues();
+    } catch (err: any) {
+      console.error("Delete failure:", err);
     } finally {
       setConfirmDeleteId(null);
     }
@@ -248,56 +152,124 @@ export default function AdminMagazineCRUDPage() {
 
   return (
     <div className="space-y-6 relative min-h-[80vh]">
-      {/* Page Header */}
+      {/* Header */}
       <div className="flex justify-between items-end border-b border-line pb-4">
         <div>
           <p className="font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-            editorial console
+            Publication Management
           </p>
           <h1 className="font-display text-h2 font-semibold text-ink mt-1">
-            Magazine achievements
+            SIET Magazine & Newsletters
           </h1>
         </div>
         <button
-          onClick={handleOpenCreate}
+          onClick={handleOpenUpload}
           className="font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent border border-ink transition-colors px-4 py-2 cursor-pointer"
         >
-          Add Achievement
+          + Upload New PDF Issue
         </button>
       </div>
 
-      {/* Main Table grid */}
+      {/* Issues Table */}
       <div className="border border-line bg-paper">
-        {loading ? (
+        {loading && issues.length === 0 ? (
           <div className="p-8 text-center font-display text-xs italic text-ink-soft">
-            Querying magazine records...
+            Querying magazine issues from repository...
           </div>
-        ) : items.length > 0 ? (
+        ) : issues.length > 0 ? (
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-line bg-paper-2 font-util text-[10px] text-ink-soft uppercase tracking-wider">
-                <th className="p-4 font-semibold">Title</th>
-                <th className="p-4 font-semibold">Student</th>
-                <th className="p-4 font-semibold">Type</th>
-                <th className="p-4 font-semibold">Year</th>
+                <th className="p-4 font-semibold">Cover</th>
+                <th className="p-4 font-semibold">Title & Details</th>
+                <th className="p-4 font-semibold">Status</th>
+                <th className="p-4 font-semibold">Pages</th>
+                <th className="p-4 font-semibold">Date</th>
                 <th className="p-4 font-semibold text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {items.map((item) => (
-                <tr key={item.id} className="hover:bg-paper-2 transition-colors">
-                  <td className="p-4 font-display font-medium text-ink max-w-sm truncate">
-                    {item.title}
+              {issues.map((issue) => (
+                <tr key={issue.id} className="hover:bg-paper-2 transition-colors">
+                  {/* Cover */}
+                  <td className="p-4 w-16">
+                    {issue.coverImageUrl ? (
+                      <img
+                        src={issue.coverImageUrl}
+                        alt={issue.title}
+                        className="w-12 h-16 object-cover border border-line shadow-xs bg-paper-3"
+                      />
+                    ) : (
+                      <div className="w-12 h-16 bg-paper-3 border border-line flex items-center justify-center font-util text-[8px] text-ink-soft text-center p-1 uppercase">
+                        No Cover
+                      </div>
+                    )}
                   </td>
-                  <td className="p-4 font-display text-ink-soft">{item.student?.name ?? "Student Researcher"}</td>
-                  <td className="p-4 font-util text-ink-soft">{item.type}</td>
-                  <td className="p-4 font-sans text-ink-soft">{item.year}</td>
+
+                  {/* Title */}
+                  <td className="p-4 max-w-sm">
+                    <a
+                      href={`/magazine/${issue.slug}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-display font-medium text-ink hover:text-accent hover:underline leading-snug block"
+                    >
+                      {issue.title}
+                    </a>
+                    {issue.description && (
+                      <p className="font-body text-[11px] text-ink-soft line-clamp-1 mt-0.5">
+                        {issue.description}
+                      </p>
+                    )}
+                    <span className="inline-block mt-1 font-util text-[9px] text-ink-soft uppercase tracking-wider bg-paper-3 px-1.5 py-0.5 border border-line">
+                      {issue.type} · {issue.year}
+                    </span>
+                  </td>
+
+                  {/* Status */}
+                  <td className="p-4 font-util">
+                    {issue.status === "processing" ? (
+                      <span className="inline-flex items-center gap-1.5 text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 border border-amber-200 uppercase tracking-wider font-semibold animate-pulse">
+                        <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                        Processing...
+                      </span>
+                    ) : issue.status === "published" ? (
+                      <span className="inline-flex items-center gap-1.5 text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 border border-emerald-200 uppercase tracking-wider font-semibold">
+                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                        Published
+                      </span>
+                    ) : (
+                      <span
+                        title={issue.failureReason || "Processing failed"}
+                        className="inline-flex items-center gap-1.5 text-[10px] text-rose-700 bg-rose-50 px-2 py-0.5 border border-rose-200 uppercase tracking-wider font-semibold cursor-help"
+                      >
+                        <span className="w-1.5 h-1.5 bg-rose-500 rounded-full" />
+                        Failed
+                      </span>
+                    )}
+                  </td>
+
+                  {/* Page Count */}
+                  <td className="p-4 font-sans text-ink-soft">
+                    {(issue.pageCount || 0) > 0 ? `${issue.pageCount} pages` : "-"}
+                  </td>
+
+                  {/* Date */}
+                  <td className="p-4 font-util text-ink-soft text-[11px]">
+                    {new Date(issue.issueDate || Date.now()).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </td>
+
+                  {/* Actions */}
                   <td className="p-4 text-right space-x-3">
-                    {confirmDeleteId === item.id ? (
+                    {confirmDeleteId === issue.id ? (
                       <span className="font-util text-[10px] uppercase tracking-wider text-accent space-x-2">
                         <span>Confirm?</span>
                         <button
-                          onClick={() => handleDelete(item.id)}
+                          onClick={() => handleDelete(issue.id)}
                           className="underline hover:text-ink cursor-pointer font-bold"
                         >
                           Yes
@@ -313,13 +285,17 @@ export default function AdminMagazineCRUDPage() {
                     ) : (
                       <>
                         <button
-                          onClick={() => handleOpenEdit(item)}
+                          onClick={() => {
+                            setReplaceIssue(issue);
+                            setReplaceFile(null);
+                            setReplaceError(null);
+                          }}
                           className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline"
                         >
-                          Edit
+                          Replace PDF
                         </button>
                         <button
-                          onClick={() => setConfirmDeleteId(item.id)}
+                          onClick={() => setConfirmDeleteId(issue.id)}
                           className="font-util text-[10px] uppercase tracking-wider text-accent hover:text-ink cursor-pointer underline"
                         >
                           Delete
@@ -332,267 +308,205 @@ export default function AdminMagazineCRUDPage() {
             </tbody>
           </table>
         ) : (
-          <div className="p-8 text-center font-body text-xs italic text-ink-soft">
-            No magazine achievements exist in the database.
+          <div className="p-12 text-center space-y-3">
+            <p className="font-display text-sm text-ink font-medium">No magazine issues uploaded yet.</p>
+            <p className="font-body text-xs text-ink-soft max-w-sm mx-auto">
+              Click &quot;Upload New PDF Issue&quot; above to publish your first college tech digest or newsletter PDF.
+            </p>
           </div>
         )}
       </div>
 
-      {/* Pagination */}
-      {(hasMore || cursorHistory.length > 1) && (
-        <div className="flex justify-center pt-4">
-          <CursorPagination
-            hasMore={hasMore}
-            hasPrevious={cursorHistory.length > 1}
-            onNext={handleNext}
-            onPrevious={handlePrevious}
-          />
-        </div>
-      )}
-
-      {/* Drawer Overlay Backdrop */}
-      {isDrawerOpen && (
-        <div
-          onClick={() => setIsDrawerOpen(false)}
-          className="fixed inset-0 z-40 bg-paper/60 backdrop-blur-xs transition-opacity"
-        />
-      )}
-
-      {/* Drawer Side Panel */}
-      <div
-        className={`fixed top-0 right-0 z-50 h-screen w-full max-w-lg border-l border-line bg-paper-2 p-6 overflow-y-auto transform transition-transform duration-300 ${
-          isDrawerOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
-        <div className="flex justify-between items-center border-b border-line pb-3 mb-6">
-          <h2 className="font-display text-body font-semibold text-ink">
-            {editItem ? "Edit Achievement" : "Add Achievement"}
-          </h2>
-          <button
-            onClick={() => setIsDrawerOpen(false)}
-            className="font-util text-eyebrow uppercase tracking-wider hover:text-accent cursor-pointer text-xs"
-          >
-            Close [×]
-          </button>
-        </div>
-
-        <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
-          {/* Title */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              Achievement Title *
-            </label>
-            <input
-              type="text"
-              required
-              value={title}
-              onChange={(e) => {
-                setTitle(e.target.value);
-                if (!editItem) {
-                  setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""));
-                }
-              }}
-              placeholder="e.g. Winner at SIH 2026 national finals"
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-            />
-          </div>
-
-          {/* Slug */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              URL Slug *
-            </label>
-            <input
-              type="text"
-              required
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-mono"
-            />
-          </div>
-
-          {/* Domain */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              Academic Domain *
-            </label>
-            <select
-              value={domainSlug}
-              onChange={(e) => setDomainSlug(e.target.value)}
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-util uppercase tracking-wider"
-            >
-              {domains.map((d) => (
-                <option key={d.slug} value={d.slug}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Student details */}
-          <div className="border border-line bg-paper p-4 space-y-3">
-            <h4 className="font-util text-eyebrow text-ink uppercase tracking-wider border-b border-line pb-1">
-              Student Details
-            </h4>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                  Student Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={studentName}
-                  onChange={(e) => setStudentName(e.target.value)}
-                  placeholder="e.g. Jane Doe"
-                  className="w-full border border-line bg-paper-2 px-2.5 py-1.5 outline-none focus:border-ink"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                  Avatar URL
-                </label>
-                <input
-                  type="text"
-                  value={studentAvatar}
-                  onChange={(e) => setStudentAvatar(e.target.value)}
-                  placeholder="Paste URL"
-                  className="w-full border border-line bg-paper-2 px-2.5 py-1.5 outline-none focus:border-ink"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-2 space-y-1">
-                <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                  Department *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  placeholder="e.g. Artificial Intelligence and Data Science"
-                  className="w-full border border-line bg-paper-2 px-2.5 py-1.5 outline-none focus:border-ink"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                  Class Year *
-                </label>
-                <input
-                  type="number"
-                  required
-                  value={year}
-                  onChange={(e) => setYear(Number(e.target.value))}
-                  className="w-full border border-line bg-paper-2 px-2.5 py-1.5 outline-none focus:border-ink"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Type & Certificate */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                Winning Type *
-              </label>
-              <select
-                value={type}
-                onChange={(e) => setType(e.target.value)}
-                className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-util uppercase tracking-wider"
+      {/* Upload Modal Drawer */}
+      {isUploadOpen && (
+        <div className="fixed inset-0 z-50 bg-paper/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-lg border border-line bg-paper-2 p-6 space-y-5 shadow-lg">
+            <div className="flex justify-between items-center border-b border-line pb-3">
+              <h2 className="font-display text-body font-semibold text-ink">
+                Upload New Magazine PDF Issue
+              </h2>
+              <button
+                onClick={() => setIsUploadOpen(false)}
+                className="font-util text-eyebrow text-ink-soft hover:text-ink uppercase tracking-wider text-xs"
               >
-                <option value="Hackathon">Hackathon</option>
-                <option value="Project">Project</option>
-                <option value="Publication">Publication</option>
-                <option value="Competition">Competition</option>
-              </select>
+                [×]
+              </button>
             </div>
-            <div className="space-y-1">
-              <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                Certificate Doc URL
-              </label>
-              <input
-                type="text"
-                value={certificateUrl}
-                onChange={(e) => setCertificateUrl(e.target.value)}
-                placeholder="https://example.com/cert.pdf"
-                className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-              />
+
+            <form onSubmit={handleUploadSubmit} className="space-y-4 text-xs">
+              {/* Title */}
+              <div className="space-y-1">
+                <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
+                  Issue Title *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. SIET Tech Digest — August 2026 Edition"
+                  className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-1">
+                <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
+                  Description / Cover Note
+                </label>
+                <textarea
+                  rows={2}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Summary of featured articles, research spotlights..."
+                  className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink resize-y"
+                />
+              </div>
+
+              {/* Year & Type */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
+                    Publication Year
+                  </label>
+                  <input
+                    type="number"
+                    value={year}
+                    onChange={(e) => setYear(Number(e.target.value))}
+                    className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
+                    Issue Frequency
+                  </label>
+                  <select
+                    value={magazineType}
+                    onChange={(e) => setMagazineType(e.target.value)}
+                    className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-util uppercase tracking-wider"
+                  >
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="annual">Annual</option>
+                    <option value="special">Special Edition</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* PDF File Upload */}
+              <div className="space-y-1.5 border border-dashed border-line p-4 bg-paper text-center">
+                <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider mb-1">
+                  PDF Document File *
+                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  required
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs font-sans text-ink cursor-pointer"
+                />
+                <p className="font-util text-[9px] text-ink-soft uppercase tracking-wider mt-1">
+                  Pages will be automatically extracted into crisp images &amp; searchable text.
+                </p>
+              </div>
+
+              {/* Error */}
+              {uploadError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 font-util text-[10px] uppercase tracking-wider">
+                  {uploadError}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-3 border-t border-line">
+                <button
+                  type="submit"
+                  disabled={uploading}
+                  className="flex-1 font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent border border-ink py-2.5 cursor-pointer disabled:opacity-50"
+                >
+                  {uploading ? "Uploading & Processing..." : "Start PDF Processing"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsUploadOpen(false)}
+                  className="px-4 font-util text-eyebrow uppercase tracking-wider text-ink border border-line hover:bg-paper py-2.5 cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Replace PDF Modal */}
+      {replaceIssue && (
+        <div className="fixed inset-0 z-50 bg-paper/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-md border border-line bg-paper-2 p-6 space-y-4 shadow-lg">
+            <div className="flex justify-between items-center border-b border-line pb-3">
+              <div>
+                <p className="font-util text-[9px] text-ink-soft uppercase tracking-wider">
+                  Re-process Existing Issue
+                </p>
+                <h3 className="font-display text-sm font-semibold text-ink">
+                  Replace PDF for &ldquo;{replaceIssue.title}&rdquo;
+                </h3>
+              </div>
+              <button
+                onClick={() => setReplaceIssue(null)}
+                className="font-util text-eyebrow text-ink-soft hover:text-ink uppercase tracking-wider text-xs"
+              >
+                [×]
+              </button>
             </div>
-          </div>
 
-          {/* Description */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              Win Description (Plain Text)
-            </label>
-            <textarea
-              rows={4}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe the context, project specifications, and student efforts..."
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink resize-y"
-            />
-          </div>
+            <form onSubmit={handleReplaceSubmit} className="space-y-4 text-xs">
+              <p className="font-body text-xs text-ink-soft">
+                Uploading a new PDF will replace the rendered page images and re-generate the table of contents.
+                The URL slug (<code className="font-mono text-ink">{replaceIssue.slug}</code>) will stay identical.
+              </p>
 
-          {/* Gallery Images */}
-          <div className="space-y-1">
-            <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-              Gallery Images (Comma-Separated URLs)
-            </label>
-            <input
-              type="text"
-              value={galleryCsv}
-              onChange={(e) => setGalleryCsv(e.target.value)}
-              placeholder="Paste URLs separated by commas"
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
-            />
-          </div>
+              <div className="space-y-1.5 border border-dashed border-line p-4 bg-paper text-center">
+                <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider mb-1">
+                  Select New PDF File *
+                </label>
+                <input
+                  ref={replaceFileInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  required
+                  onChange={(e) => setReplaceFile(e.target.files?.[0] || null)}
+                  className="w-full text-xs font-sans text-ink cursor-pointer"
+                />
+              </div>
 
-          {/* Project References JSON */}
-          <div className="space-y-1">
-            <div className="flex justify-between items-center">
-              <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                Project References (JSON Array)
-              </label>
-              <span className="text-[8px] text-ink-soft">
-                [{"{"}&ldquo;label&rdquo;: &ldquo;Title&rdquo;, &ldquo;url&rdquo;: &ldquo;Link&rdquo;{"}"}]
-              </span>
-            </div>
-            <textarea
-              rows={4}
-              value={projectLinksJson}
-              onChange={(e) => setProjectLinksJson(e.target.value)}
-              className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-mono text-[11px] resize-y"
-            />
-          </div>
+              {replaceError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 font-util text-[10px] uppercase tracking-wider">
+                  {replaceError}
+                </div>
+              )}
 
-          {/* Form Error */}
-          {formError && (
-            <p className="font-util text-[10px] text-accent uppercase tracking-wider">
-              {formError}
-            </p>
-          )}
-
-          {/* Actions */}
-          <div className="flex gap-4 pt-4 border-t border-line">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="flex-1 font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent border border-ink py-2 cursor-pointer disabled:opacity-50"
-            >
-              {submitting ? "Saving..." : "Save Record"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsDrawerOpen(false)}
-              className="flex-1 font-util text-eyebrow uppercase tracking-wider text-ink border border-line hover:bg-paper py-2 cursor-pointer"
-            >
-              Cancel
-            </button>
+              <div className="flex gap-3 pt-2 border-t border-line">
+                <button
+                  type="submit"
+                  disabled={replacing}
+                  className="flex-1 font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent border border-ink py-2.5 cursor-pointer disabled:opacity-50"
+                >
+                  {replacing ? "Re-processing PDF..." : "Replace & Re-process"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReplaceIssue(null)}
+                  className="px-4 font-util text-eyebrow uppercase tracking-wider text-ink border border-line hover:bg-paper py-2.5 cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
-        </form>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

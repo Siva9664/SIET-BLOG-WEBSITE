@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useState, useEffect, useMemo } from "react";
 import { api } from "@/lib/api";
-import { CursorPagination } from "@/components/shared";
+import { CursorPagination, ErrorState } from "@/components/shared";
 import {
   AdminDrawer,
   AdminTable,
@@ -15,36 +15,6 @@ import {
   adminSelectCls,
 } from "@/components/admin/AdminShared";
 import type { NewsItem, Domain } from "@/lib/types";
-
-// ─── Fallbacks ───────────────────────────────────────────────────────────────
-const FALLBACK_DOMAINS: Domain[] = [
-  { slug: "ai-ml", name: "AI & ML", count: 42 },
-  { slug: "cybersecurity", name: "Cybersecurity", count: 19 },
-  { slug: "pcb-electronics", name: "PCB & Electronics", count: 27 },
-  { slug: "vlsi-chips", name: "VLSI & Semiconductor", count: 12 },
-  { slug: "robotics", name: "Robotics", count: 15 },
-  { slug: "ar-vr-xr", name: "AR / VR / XR", count: 8 },
-  { slug: "iot-embedded", name: "IoT & Embedded", count: 14 },
-];
-
-const FALLBACK_NEWS: NewsItem[] = [
-  {
-    id: "n1",
-    slug: "open-models-campus-lab",
-    title: "Open models shape a new week of student experiments",
-    aiSummary:
-      "The lab tracked model releases, classroom prototypes, and a practical discussion on evaluation methods for student-built systems.",
-    sourceUrl: "https://example.com",
-    sourceName: "AI Research Desk",
-    domain: FALLBACK_DOMAINS[0],
-    tags: [{ slug: "models", name: "Models" }],
-    image:
-      "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=900&q=80",
-    publishedAt: "2026-08-13T10:00:00.000Z",
-    trending: true,
-    likes: 87,
-  },
-];
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 function toSlug(str: string) {
@@ -66,12 +36,13 @@ function fmt(iso?: string | null) {
 // ─── Page ────────────────────────────────────────────────────────────────────
 export default function AdminNewsCRUDPage() {
   const [allItems, setAllItems] = useState<NewsItem[]>([]);
-  const [domains, setDomains] = useState<Domain[]>(FALLBACK_DOMAINS);
+  const [domains, setDomains] = useState<Domain[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([null]);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Search + Filters
   const [search, setSearch] = useState("");
@@ -131,11 +102,13 @@ export default function AdminNewsCRUDPage() {
 
       const q = params.toString() ? `?${params.toString()}` : "";
       const res = await api.adminNews(q);
-      setAllItems(res.items);
+      setAllItems(res.items || []);
       setHasMore(res.pageInfo.has_more);
       setNextCursor(res.pageInfo.next_cursor);
-    } catch {
-      setAllItems(FALLBACK_NEWS);
+      setLoadError(null);
+    } catch (err: any) {
+      setAllItems([]);
+      setLoadError(err?.message || "Failed to load news articles from backend API.");
       setHasMore(false);
       setNextCursor(null);
     } finally {
@@ -148,7 +121,7 @@ export default function AdminNewsCRUDPage() {
   }, [cursor, statusFilter, processingFilter, departmentFilter, startDate, endDate]);
 
   useEffect(() => {
-    api.domains().then(setDomains).catch(() => setDomains(FALLBACK_DOMAINS));
+    api.domains().then(setDomains).catch(() => setDomains([]));
   }, []);
 
   const showToast = (msg: string, type: "success" | "error" | "info" = "success") => {
@@ -422,12 +395,20 @@ export default function AdminNewsCRUDPage() {
         />
       </div>
 
-      {/* Table */}
-      <AdminTable
-        columns={["Title", "Department", "Source", "Published Date", "Archived At", "Status", "Actions"]}
-        loading={loading}
-        empty="No news entries match your filter criteria."
-      >
+      {/* Load Error State */}
+      {loadError ? (
+        <ErrorState
+          title="Failed to Load News"
+          message={loadError}
+          onRetry={() => loadNews(cursor || null)}
+        />
+      ) : (
+        /* Table */
+        <AdminTable
+          columns={["Title", "Department", "Source", "Published Date", "Archived At", "Status", "Actions"]}
+          loading={loading}
+          empty="No news entries match your filter criteria."
+        >
         {items.map((item: any) => (
           <tr key={item.id} className="hover:bg-paper-2 transition-colors">
             <td className="p-4 max-w-xs">
@@ -496,6 +477,7 @@ export default function AdminNewsCRUDPage() {
           </tr>
         ))}
       </AdminTable>
+      )}
 
       {/* Pagination */}
       {(hasMore || cursorHistory.length > 1) && (

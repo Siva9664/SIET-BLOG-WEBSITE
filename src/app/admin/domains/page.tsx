@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useState, useEffect, useMemo } from "react";
 import { api } from "@/lib/api";
+import { ErrorState } from "@/components/shared";
 import {
   AdminDrawer,
   AdminTable,
@@ -12,13 +13,6 @@ import {
   adminInputCls,
 } from "@/components/admin/AdminShared";
 import type { Domain } from "@/lib/types";
-
-const FALLBACK_DOMAINS: Domain[] = [
-  { slug: "machine-learning", name: "Machine Learning", count: 42 },
-  { slug: "robotics", name: "Robotics", count: 19 },
-  { slug: "campus-research", name: "Campus Research", count: 27 },
-  { slug: "ethics", name: "AI Ethics", count: 12 },
-];
 
 function toSlug(str: string) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -40,6 +34,7 @@ function DomainBar({ count, max }: { count: number; max: number }) {
 export default function AdminDomainsCRUDPage() {
   const [allItems, setAllItems] = useState<Domain[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" | "info" } | null>(null);
   const [search, setSearch] = useState("");
 
@@ -68,11 +63,13 @@ export default function AdminDomainsCRUDPage() {
 
   const loadDomains = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.adminDomains();
-      setAllItems(res);
-    } catch {
-      api.domains().then(setAllItems).catch(() => setAllItems(FALLBACK_DOMAINS));
+      setAllItems(res || []);
+    } catch (err: any) {
+      setAllItems([]);
+      setLoadError(err?.message || "Failed to load academic domains.");
     } finally {
       setLoading(false);
     }
@@ -99,11 +96,8 @@ export default function AdminDomainsCRUDPage() {
       if (editItem) { await api.adminDomainUpdate(editItem.slug, payload); showToast("Domain updated.", "success"); }
       else { await api.adminDomainCreate(payload); showToast("Domain created.", "success"); }
       setDrawerOpen(false); loadDomains();
-    } catch {
-      if (editItem) setAllItems((p) => p.map((i) => (i.slug === editItem.slug ? payload : i)));
-      else setAllItems((p) => [...p, payload]);
-      showToast("Saved locally (API offline).", "info");
-      setDrawerOpen(false);
+    } catch (err: any) {
+      showToast(err?.message || "Failed to save domain.", "error");
     } finally {
       setSubmitting(false);
     }
@@ -113,9 +107,8 @@ export default function AdminDomainsCRUDPage() {
     try {
       await api.adminDomainDelete(targetSlug);
       loadDomains(); showToast("Domain removed.", "success");
-    } catch {
-      setAllItems((p) => p.filter((i) => i.slug !== targetSlug));
-      showToast("Removed locally (API offline).", "info");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to remove domain.", "error");
     } finally {
       setConfirmDeleteSlug(null);
     }
@@ -138,34 +131,38 @@ export default function AdminDomainsCRUDPage() {
 
       <AdminSearchBar value={search} onChange={setSearch} placeholder="Search domains by name or slug..." />
 
-      <AdminTable columns={["Domain Name", "URL Slug", "Content Size", "Actions"]} loading={loading} empty="No domains match your search.">
-        {items.map((item) => (
-          <tr key={item.slug} className="hover:bg-paper-2 transition-colors">
-            <td className="p-4">
-              <p className="font-display font-medium text-ink">{item.name}</p>
-            </td>
-            <td className="p-4 font-mono text-[10px] text-ink-soft">{item.slug}</td>
-            <td className="p-4">
-              <DomainBar count={item.count} max={maxCount} />
-            </td>
-            <td className="p-4 text-right whitespace-nowrap">
-              {confirmDeleteSlug === item.slug ? (
-                <span className="font-util text-[10px] uppercase tracking-wider text-red-600 space-x-2">
-                  <span>Delete?</span>
-                  <button onClick={() => handleDelete(item.slug)} className="underline cursor-pointer font-bold">Yes</button>
-                  <span className="text-line">/</span>
-                  <button onClick={() => setConfirmDeleteSlug(null)} className="underline cursor-pointer text-ink">No</button>
-                </span>
-              ) : (
-                <>
-                  <button onClick={() => openEdit(item)} className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline transition-colors">Edit</button>
-                  <button onClick={() => setConfirmDeleteSlug(item.slug)} className="font-util text-[10px] uppercase tracking-wider text-red-500 hover:text-ink cursor-pointer underline ml-3 transition-colors">Delete</button>
-                </>
-              )}
-            </td>
-          </tr>
-        ))}
-      </AdminTable>
+      {loadError ? (
+        <ErrorState title="Failed to Load Domains" message={loadError} onRetry={loadDomains} />
+      ) : (
+        <AdminTable columns={["Domain Name", "URL Slug", "Content Size", "Actions"]} loading={loading} empty="No domains match your search.">
+          {items.map((item) => (
+            <tr key={item.slug} className="hover:bg-paper-2 transition-colors">
+              <td className="p-4">
+                <p className="font-display font-medium text-ink">{item.name}</p>
+              </td>
+              <td className="p-4 font-mono text-[10px] text-ink-soft">{item.slug}</td>
+              <td className="p-4">
+                <DomainBar count={item.count} max={maxCount} />
+              </td>
+              <td className="p-4 text-right whitespace-nowrap">
+                {confirmDeleteSlug === item.slug ? (
+                  <span className="font-util text-[10px] uppercase tracking-wider text-red-600 space-x-2">
+                    <span>Delete?</span>
+                    <button onClick={() => handleDelete(item.slug)} className="underline cursor-pointer font-bold">Yes</button>
+                    <span className="text-line">/</span>
+                    <button onClick={() => setConfirmDeleteSlug(null)} className="underline cursor-pointer text-ink">No</button>
+                  </span>
+                ) : (
+                  <>
+                    <button onClick={() => openEdit(item)} className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline transition-colors">Edit</button>
+                    <button onClick={() => setConfirmDeleteSlug(item.slug)} className="font-util text-[10px] uppercase tracking-wider text-red-500 hover:text-ink cursor-pointer underline ml-3 transition-colors">Delete</button>
+                  </>
+                )}
+              </td>
+            </tr>
+          ))}
+        </AdminTable>
+      )}
 
       <AdminDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} title={editItem ? "Edit Domain" : "Add New Domain"}>
         <form onSubmit={handleSubmit} className="space-y-4">

@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     DEBUG: Annotated[bool, BeforeValidator(parse_debug_flag)] = False
     API_PREFIX: str = "/api/v1"
     LOG_LEVEL: str = "INFO"
-    NEWS_ARCHIVE_AFTER_DAYS: int = 30
+    NEWS_ARCHIVE_AFTER_DAYS: int = 90
 
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5433/siet_db"
     POSTGRES_POOL_SIZE: int = 10

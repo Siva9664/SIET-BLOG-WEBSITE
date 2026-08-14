@@ -20,8 +20,16 @@ async def get_current_user(request: Request, db: AsyncSession = Depends(get_db))
 
 
 async def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role not in (UserRole.SUPER_ADMIN.value, UserRole.ADMIN.value, "admin"):
+    role_val = str(current_user.role).upper()
+    if role_val not in ("SUPER_ADMIN", "ADMIN"):
         raise ForbiddenException("Administrator role required.")
+    return current_user
+
+
+async def require_super_admin(current_user: User = Depends(get_current_user)) -> User:
+    role_val = str(current_user.role).upper()
+    if role_val != "SUPER_ADMIN":
+        raise ForbiddenException("Super Administrator permissions required.")
     return current_user
 
 

@@ -1,6 +1,6 @@
 # SIET Tech News — Implementation Progress
 
-Date: August 13, 2026
+Date: August 14, 2026
 
 ## Audit Checklist Status
 
@@ -38,6 +38,32 @@ Date: August 13, 2026
 | Light Paper Design System Alignment | DONE | Converted `/news` and `/news/[slug]` to use the light paper `<main className="kitchen-page">` container |
 | Frontend scaffold (Next.js, routing, layout) | DONE | Next.js 16 App Router with TypeScript |
 | Admin dashboard (counts, source health, sync logs) | DONE | Live news release CRUD, trigger live fetch button, source health, sync log history, and Today Accuracy ground-truth card |
+| Admin Magazine PDF Upload & Replace Pipeline | DONE | Built `POST /admin/magazine/upload` & `POST /admin/magazine/{id}/replace-pdf` backend endpoints; background worker `process_magazine_pdf` extracts high-res page images (150 DPI) & raw text using PyMuPDF (`fitz`), auto-generates grounded TOC entries, and updates `page_count`, `cover_image_url`, and `status="published"` |
+| Public Magazine Issue Viewer & Reader UI | DONE | Built public `/magazine` list page and interactive viewer at `/magazine/[slug]` featuring high-resolution page viewer, jump-to-page TOC dropdown selector, keyboard navigation (left/right arrows), accessible plain text toggle (`extractedText`), and direct PDF download link |
+| Complete Mock Data Elimination & ErrorState UI | DONE | Systematically audited and eliminated all hardcoded fallback mock datasets across all admin pages (`/news`, `/articles`, `/domains`, `/tags`, `/users`, `/media`, `/analytics`, `/admin`) and public pages (`/`, `/search`, `/articles`, `/domains`, `/profile`). All pages render live backend data or display a unified `<ErrorState>` component with retry actions when API calls fail |
+| Backend SQL Query Optimization & Batching | DONE | Implemented bulk relationship querying in `backend/app/modules/contract_helpers.py` (`get_coverage_map`, `get_like_counts_map`, `get_user_likes_set`, `get_user_bookmarks_set`). Reduced query complexity on paginated news endpoints from N+1 (60+ queries) down to 4 queries per page |
+| Security Hardening & Rate Limiting | DONE | Added `SecurityMiddleware` delivering HTTP security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection: 1; mode=block`, `Referrer-Policy: strict-origin-when-cross-origin`, `Strict-Transport-Security`). Added sliding window rate limiting on `/auth/login` (10/min) and upload endpoints. Enforced payload size limits (50MB PDF, 10MB media images) and MIME type validation |
+| 90-Day Rolling Archive System | DONE | Updated `NEWS_ARCHIVE_AFTER_DAYS` to 90 days in `backend/app/core/config.py`. Articles 0-90 days old remain in active public feeds; articles older than 90 days automatically transition to `is_archived = True` during daily 6:00 AM IST sync |
+| Search Bar & Full-Text Search on `/news` | DONE | Created `NewsSearchInput` component with 300ms debounced input, URL `?q=` param sync, loading indicator, and clear button. Queries title, description, `simple_explanation`, tags, and source across 0-90 day active feed |
+| Stacked Today + Past News Public Feed | DONE | Restructured `/news` to stack Today's News (0-day) and Past News (1-90 days) vertically. Shows single department filter pills with live counts across full 90-day active feed |
+| Two-Tier RBAC System (ADMIN vs SUPER_ADMIN) | DONE | Created `require_super_admin` security dependency in `backend/app/shared/auth/dependencies.py`. Restricted Magazine PDF uploads/deletions and Admin Account CRUD (`GET /admin/admins`, `POST /admin/admins`, `DELETE /admin/admins/{id}`) strictly to `SUPER_ADMIN`. Created `src/app/admin/admins/page.tsx` for Super Admin account management with self-delete and last-super-admin delete safeguards |
+| ScrollReveal Hydration & Re-render Resilience | DONE | Upgraded `ScrollReveal.tsx` with a `MutationObserver` + `IntersectionObserver` combo to track DOM re-renders and client hydration passes. Ensures `.revealed` is continuously maintained on visible `.reveal` containers during React state updates, eliminating element invisibility (`opacity: 0`) without using `suppressHydrationWarning` |
+| News Masthead Control Cluster Spacing | DONE | Grouped masthead header, debounced search bar, and department filter pills into a unified `<div className="space-y-4">` control cluster in `src/app/(public)/news/page.tsx`. Tightened spacing to 1rem between elements to form a cohesive control unit while preserving the search bar's unique bordered input appearance |
+| News Feed Grid Row Gap Reduction | DONE | Overrode `.kitchen-page` grid gap (`--section-y: 6.5rem`) on `src/app/(public)/news/page.tsx` with `!gap-y-6` (`1.5rem` / `24px`). Completely eliminated the multi-inch blank gap between the filter pills row and the Today's News feed section |
+| Safe Async Relationship Serialization | DONE | Added `_is_loaded` SQLAlchemy instance state check helper in `backend/app/modules/contract_helpers.py`. Replaced direct `hasattr` checks on `Magazine.pages` and `Magazine.toc_entries` with `_is_loaded(item, prop)` to prevent `sqlalchemy.exc.MissingGreenlet` exceptions during async serialization. Fixed the 500 error on `GET /api/v1/home` (`Portal Offline 500 /home`) |
+
+---
+
+## Root Cause Diagnostic Report — `/news` Blank Page Fix
+
+1. **Root Cause**: `.reveal` CSS rules specify `opacity: 0` until `.revealed` is appended to the element's class list. During React hydration and subsequent client re-renders (e.g. state updates in `NewsSearchInput`), React reconciled the DOM `className` attribute back to the raw JSX string (`"... reveal"`), stripping out the imperatively added `"revealed"` class. Because `ScrollReveal`'s effect only ran on route navigation, stripped `.reveal` elements reverted to `opacity: 0` and became completely invisible.
+2. **Remediation**:
+   - Upgraded `src/components/shared/ScrollReveal.tsx` with a `MutationObserver` that continuously monitors class attribute mutations on `.reveal` nodes and instantly re-applies `.revealed` to visible elements.
+   - Wrapped `NewsSearchInput` in `src/app/(public)/news/page.tsx` with `<React.Suspense>` to prevent Next.js client hydration deferral.
+3. **Verification**:
+   - `http://localhost:8000/api/v1/news` and `/news/taxonomy` return valid data.
+   - `/news` renders masthead, debounced search bar, department taxonomy pills, Today's News, Past News, and pagination controls.
+   - `npx tsc --noEmit` clean with 0 errors.
 
 ---
 
@@ -56,3 +82,4 @@ Date: August 13, 2026
    - **`todayAccuracy.total`**: Increased from **199** to **209** (`verified: 209`, `flagged: 0`, `failed: 0`).
    - **`vlsi-semiconductor`**: Count updated from **9** to **19**.
    - **Public `/news` Total**: Reflected immediately as **209** for today's scope (`Today's News (209)`).
+

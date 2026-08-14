@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useState, useEffect, useMemo } from "react";
 import { api } from "@/lib/api";
+import { ErrorState } from "@/components/shared";
 import {
   AdminDrawer,
   AdminTable,
@@ -13,12 +14,6 @@ import {
   adminSelectCls,
 } from "@/components/admin/AdminShared";
 import type { User } from "@/lib/types";
-
-// ─── Fallbacks ───────────────────────────────────────────────────────────────
-const FALLBACK_USERS: User[] = [
-  { id: "u1", name: "Srikumar B.", email: "editor@siet.edu", role: "admin" },
-  { id: "u2", name: "Jane Doe", email: "jane@siet.edu", role: "user" },
-];
 
 // ─── Role Badge ───────────────────────────────────────────────────────────────
 function RoleBadge({ role }: { role: string }) {
@@ -56,6 +51,7 @@ export default function AdminUsersCRUDPage() {
   const [allItems, setAllItems] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" | "info" } | null>(null);
 
   // Filters
@@ -99,11 +95,13 @@ export default function AdminUsersCRUDPage() {
 
   const loadUsers = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.adminUsers();
-      setAllItems(res);
-    } catch {
-      setAllItems(FALLBACK_USERS);
+      setAllItems(res || []);
+    } catch (err: any) {
+      setAllItems([]);
+      setLoadError(err?.message || "Failed to load user accounts from server.");
     } finally {
       setLoading(false);
     }
@@ -113,7 +111,7 @@ export default function AdminUsersCRUDPage() {
     loadUsers();
     api.me()
       .then(setCurrentUser)
-      .catch(() => setCurrentUser(FALLBACK_USERS[0]));
+      .catch(() => setCurrentUser(null));
   }, []);
 
   const openCreate = () => {
@@ -148,12 +146,8 @@ export default function AdminUsersCRUDPage() {
       }
       setDrawerOpen(false);
       loadUsers();
-    } catch {
-      const mock: User = { id: editItem?.id || `u-${Date.now()}`, name, email, role };
-      if (editItem) setAllItems((p) => p.map((i) => (i.id === editItem.id ? mock : i)));
-      else setAllItems((p) => [...p, mock]);
-      showToast("Saved locally (API offline).", "info");
-      setDrawerOpen(false);
+    } catch (err: any) {
+      setFormError(err?.message || "Failed to save user account.");
     } finally {
       setSubmitting(false);
     }
@@ -164,9 +158,8 @@ export default function AdminUsersCRUDPage() {
       await api.adminUserDelete(id);
       loadUsers();
       showToast("User removed.", "success");
-    } catch {
-      setAllItems((p) => p.filter((i) => i.id !== id));
-      showToast("Removed locally (API offline).", "info");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to remove user account.", "error");
     } finally {
       setConfirmDeleteId(null);
     }
@@ -220,58 +213,62 @@ export default function AdminUsersCRUDPage() {
         }
       />
 
-      {/* Table */}
-      <AdminTable
-        columns={["User", "Email", "Role", "Status", "Actions"]}
-        loading={loading}
-        empty="No users match your filters."
-      >
-        {items.map((item) => {
-          const isSelf = currentUser?.id === item.id;
-          return (
-            <tr key={item.id} className={`hover:bg-paper-2 transition-colors ${isSelf ? "bg-accent/5" : ""}`}>
-              <td className="p-4">
-                <div className="flex items-center gap-2.5">
-                  <UserAvatar name={item.name} />
-                  <div>
-                    <p className="font-display font-medium text-ink text-xs leading-tight">
-                      {item.name}
-                      {isSelf && (
-                        <span className="font-util text-[8px] uppercase tracking-wider text-accent ml-2 border border-accent/20 px-1.5 py-0.5">
-                          You
-                        </span>
-                      )}
-                    </p>
+      {loadError ? (
+        <ErrorState title="Failed to Load Users" message={loadError} onRetry={loadUsers} />
+      ) : (
+        /* Table */
+        <AdminTable
+          columns={["User", "Email", "Role", "Status", "Actions"]}
+          loading={loading}
+          empty="No users match your filters."
+        >
+          {items.map((item) => {
+            const isSelf = currentUser?.id === item.id;
+            return (
+              <tr key={item.id} className={`hover:bg-paper-2 transition-colors ${isSelf ? "bg-accent/5" : ""}`}>
+                <td className="p-4">
+                  <div className="flex items-center gap-2.5">
+                    <UserAvatar name={item.name} />
+                    <div>
+                      <p className="font-display font-medium text-ink text-xs leading-tight">
+                        {item.name}
+                        {isSelf && (
+                          <span className="font-util text-[8px] uppercase tracking-wider text-accent ml-2 border border-accent/20 px-1.5 py-0.5">
+                            You
+                          </span>
+                        )}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              </td>
-              <td className="p-4 font-mono text-[10px] text-ink-soft">{item.email}</td>
-              <td className="p-4"><RoleBadge role={item.role} /></td>
-              <td className="p-4">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <span className="font-util text-[9px] uppercase tracking-wider text-ink-soft">Active</span>
-                </span>
-              </td>
-              <td className="p-4 text-right whitespace-nowrap">
-                {confirmDeleteId === item.id ? (
-                  <span className="font-util text-[10px] uppercase tracking-wider text-red-600 space-x-2">
-                    <span>{isSelf ? "Delete yourself?" : "Confirm?"}</span>
-                    <button onClick={() => handleDelete(item.id)} className="underline cursor-pointer font-bold">Yes</button>
-                    <span className="text-line">/</span>
-                    <button onClick={() => setConfirmDeleteId(null)} className="underline cursor-pointer text-ink">No</button>
+                </td>
+                <td className="p-4 font-mono text-[10px] text-ink-soft">{item.email}</td>
+                <td className="p-4"><RoleBadge role={item.role} /></td>
+                <td className="p-4">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="font-util text-[9px] uppercase tracking-wider text-ink-soft">Active</span>
                   </span>
-                ) : (
-                  <>
-                    <button onClick={() => openEdit(item)} className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline transition-colors">Edit</button>
-                    <button onClick={() => setConfirmDeleteId(item.id)} className="font-util text-[10px] uppercase tracking-wider text-red-500 hover:text-ink cursor-pointer underline ml-3 transition-colors">Delete</button>
-                  </>
-                )}
-              </td>
-            </tr>
-          );
-        })}
-      </AdminTable>
+                </td>
+                <td className="p-4 text-right whitespace-nowrap">
+                  {confirmDeleteId === item.id ? (
+                    <span className="font-util text-[10px] uppercase tracking-wider text-red-600 space-x-2">
+                      <span>{isSelf ? "Delete yourself?" : "Confirm?"}</span>
+                      <button onClick={() => handleDelete(item.id)} className="underline cursor-pointer font-bold">Yes</button>
+                      <span className="text-line">/</span>
+                      <button onClick={() => setConfirmDeleteId(null)} className="underline cursor-pointer text-ink">No</button>
+                    </span>
+                  ) : (
+                    <>
+                      <button onClick={() => openEdit(item)} className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline transition-colors">Edit</button>
+                      <button onClick={() => setConfirmDeleteId(item.id)} className="font-util text-[10px] uppercase tracking-wider text-red-500 hover:text-ink cursor-pointer underline ml-3 transition-colors">Delete</button>
+                    </>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </AdminTable>
+      )}
 
       {/* Drawer */}
       <AdminDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} title={editItem ? "Edit User Profile" : "Register New User"}>

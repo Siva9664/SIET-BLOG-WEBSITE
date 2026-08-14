@@ -15,10 +15,10 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }) {
   const heads = await headers();
-  const pathname = heads.get("x-pathname") || "/admin";
+  const pathname = heads.get("x-pathname") || "";
 
   // Bypass auth gate specifically for the login page route
-  if (pathname === "/admin/login") {
+  if (pathname.includes("/admin/login")) {
     return <>{children}</>;
   }
 

@@ -21,41 +21,12 @@ interface ActivityItem {
   details: string;
 }
 
-// ─── Fallbacks ────────────────────────────────────────────────────────────────
-
-const FALLBACK_COUNTS: DashboardCounts = {
-  news: 124,
-  articles: 42,
-  achievements: 18,
-  users: 5,
+const INITIAL_COUNTS: DashboardCounts = {
+  news: 0,
+  articles: 0,
+  achievements: 0,
+  users: 0,
 };
-
-const FALLBACK_ACTIVITY: ActivityItem[] = [
-  {
-    id: "act-1",
-    action: "Created Article",
-    timestamp: "2026-07-09T14:00:00Z",
-    details: "Sanjay Kumar published the 'building-responsible-rag' article.",
-  },
-  {
-    id: "act-2",
-    action: "Updated Achievement",
-    timestamp: "2026-07-08T11:30:00Z",
-    details: "Pooja Hegde updated the 'ieee-robotics-paper' entry gallery.",
-  },
-  {
-    id: "act-3",
-    action: "Created News Item",
-    timestamp: "2026-07-08T09:15:00Z",
-    details: "Dr. S. Brikumar posted the 'open-models-campus-lab' news release.",
-  },
-  {
-    id: "act-4",
-    action: "System Configuration",
-    timestamp: "2026-07-07T16:45:00Z",
-    details: "Administrator changed general CORS configuration settings.",
-  },
-];
 
 // ─── Quick Actions ────────────────────────────────────────────────────────────
 
@@ -171,7 +142,7 @@ function SystemHealthBadge({ connected }: { connected: boolean }) {
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function AdminDashboardPage() {
-  const [counts, setCounts] = useState<DashboardCounts>(FALLBACK_COUNTS);
+  const [counts, setCounts] = useState<DashboardCounts>(INITIAL_COUNTS);
   const [todayAccuracy, setTodayAccuracy] = useState<{ date: string; verified: number; flagged: number; failed: number; total: number }>({
     date: new Date().toISOString().split("T")[0],
     verified: 0,
@@ -179,7 +150,7 @@ export default function AdminDashboardPage() {
     failed: 0,
     total: 0,
   });
-  const [activity, setActivity] = useState<ActivityItem[]>(FALLBACK_ACTIVITY);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [triggerLoading, setTriggerLoading] = useState(false);
@@ -197,15 +168,15 @@ export default function AdminDashboardPage() {
     (async () => {
       try {
         const data = await api.adminDashboard();
-        setCounts(data.counts ?? FALLBACK_COUNTS);
+        setCounts(data.counts ?? INITIAL_COUNTS);
         if (data.todayAccuracy) {
           setTodayAccuracy(data.todayAccuracy);
         }
-        setActivity(data.recentActivity?.length > 0 ? data.recentActivity : FALLBACK_ACTIVITY);
+        setActivity(data.recentActivity ?? []);
         setIsConnected(true);
       } catch {
-        setCounts(FALLBACK_COUNTS);
-        setActivity(FALLBACK_ACTIVITY);
+        setCounts(INITIAL_COUNTS);
+        setActivity([]);
         setIsConnected(false);
       } finally {
         setLoading(false);

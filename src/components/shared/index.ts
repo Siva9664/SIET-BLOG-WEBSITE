@@ -4,6 +4,7 @@ export { Breadcrumb } from "./Breadcrumb";
 export { ContentCard } from "./ContentCard";
 export { DomainFilter } from "./DomainFilter";
 export { EmptyState } from "./EmptyState";
+export { ErrorState } from "./ErrorState";
 export { Footer } from "./Footer";
 export { LoadingSkeleton } from "./LoadingSkeleton";
 export { Navbar } from "./Navbar";

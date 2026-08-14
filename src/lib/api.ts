@@ -1,4 +1,4 @@
-import type { Achievement, Article, Domain, NewsItem, Paginated, CursorPaginated, SiteSettings, User } from "./types";
+import type { Achievement, Article, Domain, MagazineIssue, NewsItem, Paginated, CursorPaginated, SiteSettings, User } from "./types";
 
 const BASE = `${process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000"}/api/v1`;
 
@@ -171,21 +171,46 @@ const normalizeArticle = (item: any): Article => ({
   bookmarked: Boolean(item.bookmarked),
 });
 
-const normalizeAchievement = (item: any): Achievement => ({
+const normalizeMagazine = (item: any): MagazineIssue => ({
   id: String(item.id ?? ""),
   slug: item.slug ?? "",
   title: item.title ?? "",
-  description: item.description ?? item.content ?? item.excerpt ?? "",
-  student: normalizeStudent(item.student),
-  department: item.department ?? "",
+  description: item.description ?? "",
   year: Number(item.year ?? new Date().getFullYear()),
-  type: item.type ?? "Hackathon",
-  domain: normalizeDomain(item.domain),
+  type: item.type ?? "monthly",
+  status: item.status ?? "published",
+  failureReason: item.failureReason ?? item.failure_reason,
+  pageCount: Number(item.pageCount ?? item.page_count ?? 0),
+  pdfUrl: item.pdfUrl ?? item.pdf_url ?? item.certificateUrl,
+  coverImageUrl: item.coverImageUrl ?? item.cover_image_url ?? (Array.isArray(item.gallery) && item.gallery.length > 0 ? item.gallery[0] : undefined),
+  issueDate: item.issueDate ?? item.publishedAt ?? item.created_at ?? new Date().toISOString(),
+  pages: Array.isArray(item.pages)
+    ? item.pages.map((p: any) => ({
+        id: String(p.id ?? ""),
+        pageNumber: Number(p.pageNumber ?? p.page_number ?? 1),
+        imageUrl: p.imageUrl ?? p.image_url ?? "",
+        extractedText: p.extractedText ?? p.extracted_text ?? "",
+      }))
+    : [],
+  tocEntries: Array.isArray(item.tocEntries)
+    ? item.tocEntries.map((t: any) => ({
+        id: String(t.id ?? ""),
+        pageNumber: Number(t.pageNumber ?? t.page_number ?? 1),
+        heading: t.heading ?? "",
+      }))
+    : [],
   gallery: Array.isArray(item.gallery) ? item.gallery : [],
-  certificateUrl: item.certificateUrl ?? item.certificate_url,
   projectLinks: Array.isArray(item.projectLinks) ? item.projectLinks : [],
   likes: Number(item.likes ?? 0),
   bookmarked: Boolean(item.bookmarked),
+});
+
+const normalizeAchievement = (item: any): Achievement => ({
+  ...normalizeMagazine(item),
+  student: normalizeStudent(item.student),
+  department: item.department ?? "",
+  domain: normalizeDomain(item.domain),
+  certificateUrl: item.certificateUrl ?? item.certificate_url,
 });
 
 function normalizePaginated<T>(res: any, mapItem: (x: any) => T): Paginated<T> {
@@ -348,19 +373,56 @@ export const api = {
 
   magazine: async (q = "") => {
     const res = await req<any>(`/magazine${q}`);
-    return normalizePaginated(res, normalizeAchievement);
+    return normalizePaginated(res, normalizeMagazine);
   },
   magBySlug: async (s: string) => {
     const res = await req<any>(`/magazine/${s}`);
-    return normalizeAchievement(res);
+    return normalizeMagazine(res);
   },
   magByType: async (t: string) => {
     const res = await req<any>(`/magazine/type/${t}`);
-    return normalizePaginated(res, normalizeAchievement);
+    return normalizePaginated(res, normalizeMagazine);
   },
   magByYear: async (y: number) => {
     const res = await req<any>(`/magazine/year/${y}`);
-    return normalizePaginated(res, normalizeAchievement);
+    return normalizePaginated(res, normalizeMagazine);
+  },
+
+  adminListMagazines: async () => {
+    const data = await req<any[]>("/admin/magazine");
+    return (data || []).map(normalizeMagazine);
+  },
+
+  adminUploadMagazine: async (formData: FormData) => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+    const res = await fetch(`${API_BASE}/admin/magazine/upload`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Upload failed" }));
+      throw new Error(err.detail || "Failed to upload magazine PDF");
+    }
+    return res.json();
+  },
+
+  adminReplaceMagazinePdf: async (id: string, formData: FormData) => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+    const res = await fetch(`${API_BASE}/admin/magazine/${id}/replace-pdf`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "PDF replacement failed" }));
+      throw new Error(err.detail || "Failed to replace magazine PDF");
+    }
+    return res.json();
+  },
+
+  adminDeleteMagazine: async (id: string) => {
+    return req<{ message: string }>(`/admin/magazine/${id}`, { method: "DELETE" });
   },
 
   domains: () => req<Domain[]>("/domains"),
@@ -463,6 +525,12 @@ export const api = {
   adminUserCreate: (b: any) => req<User>("/admin/users", { method: "POST", body: JSON.stringify(b) }),
   adminUserUpdate: (id: string, b: any) => req<User>(`/admin/users/${id}`, { method: "PUT", body: JSON.stringify(b) }),
   adminUserDelete: (id: string) => req<{ success: boolean }>(`/admin/users/${id}`, { method: "DELETE" }),
+
+  // Admin Account Management (SUPER_ADMIN)
+  adminAdmins: () => req<{ id: string; name: string; email: string; role: string; is_active: boolean; created_at: string }[]>("/admin/admins"),
+  adminAdminCreate: (b: { name: string; email: string; password: string; role?: string }) =>
+    req<{ id: string; name: string; email: string; role: string; is_active: boolean }>("/admin/admins", { method: "POST", body: JSON.stringify(b) }),
+  adminAdminDelete: (id: string) => req<{ message: string }>(`/admin/admins/${id}`, { method: "DELETE" }),
 
   // Contact
   submitContact: (data: { name: string; email: string; subject?: string; message: string }) =>

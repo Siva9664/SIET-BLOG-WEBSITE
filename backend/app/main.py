@@ -13,7 +13,7 @@ from app.modules.engagement.router import router as engagement_router
 from app.modules.health.router import router as health_router
 from app.modules.home.router import router as home_router
 from app.modules.internal.router import router as internal_router
-from app.modules.magazine.router import router as magazine_router
+from app.modules.magazine.router import admin_router as admin_magazine_router, router as magazine_router
 from app.modules.media.router import router as media_router
 from app.modules.news.router import router as news_router
 from app.modules.search.router import router as search_router
@@ -48,7 +48,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.staticfiles import StaticFiles
+import os
+
+# Ensure uploads directory exists
+os.makedirs("uploads/magazines", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+from app.shared.middleware.audit import AuditMiddleware
+from app.shared.middleware.auth import AuthenticationMiddleware
+from app.shared.middleware.request_id import RequestIDMiddleware
+from app.shared.middleware.security import SecurityMiddleware
+
 # Custom Middlewares
+app.add_middleware(SecurityMiddleware)
 app.add_middleware(AuditMiddleware)
 app.add_middleware(AuthenticationMiddleware)
 app.add_middleware(RequestIDMiddleware)
@@ -68,6 +81,7 @@ app.include_router(admin_router, prefix=settings.API_PREFIX)
 app.include_router(news_router, prefix=settings.API_PREFIX)
 app.include_router(articles_router, prefix=settings.API_PREFIX)
 app.include_router(magazine_router, prefix=settings.API_PREFIX)
+app.include_router(admin_magazine_router, prefix=settings.API_PREFIX)
 app.include_router(engagement_router, prefix=settings.API_PREFIX)
 app.include_router(analytics_router, prefix=settings.API_PREFIX)
 app.include_router(search_router, prefix=settings.API_PREFIX)

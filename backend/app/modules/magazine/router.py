@@ -1,4 +1,9 @@
-from fastapi import APIRouter, Depends, Query, Request
+import os
+import re
+from datetime import datetime, timezone
+import uuid
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -20,15 +25,25 @@ from app.modules.engagement.router import (
     unbookmark_contract,
     unlike_contract,
 )
-from app.modules.magazine.models import Magazine
+from app.modules.magazine.models import Magazine, MagazinePage, MagazineTOCEntry
+from app.modules.magazine.pipeline import process_magazine_pdf
+from app.shared.auth.dependencies import require_admin, require_super_admin
 from app.shared.exceptions.custom import NotFoundException
 from app.shared.types.content import ContentKind, ContentStatus, MagazineType
 
 router = APIRouter(prefix="/magazine", tags=["Magazine"])
+admin_router = APIRouter(prefix="/admin/magazine", tags=["Admin Magazine"])
 
 
 def _current_user_id(request: Request) -> int | None:
     return int(request.state.user) if getattr(request.state, "user", None) else None
+
+
+def slugify(text: str) -> str:
+    s = text.lower().strip()
+    s = re.sub(r"[^\w\s-]", "", s)
+    s = re.sub(r"[\s_-]+", "-", s)
+    return s or f"issue-{int(datetime.now().timestamp())}"
 
 
 async def _magazine_page(
@@ -42,8 +57,20 @@ async def _magazine_page(
 ):
     page = normalize_page(page)
     limit = normalize_limit(limit)
-    query = select(Magazine).options(selectinload(Magazine.achievements), selectinload(Magazine.project_links)).where(Magazine.status == ContentStatus.PUBLISHED)
-    count_query = select(func.count()).select_from(Magazine).where(Magazine.status == ContentStatus.PUBLISHED)
+    
+    # Show published issues for public
+    pub_statuses = ["published", ContentStatus.PUBLISHED]
+    query = (
+        select(Magazine)
+        .options(
+            selectinload(Magazine.pages),
+            selectinload(Magazine.toc_entries),
+            selectinload(Magazine.achievements),
+            selectinload(Magazine.project_links),
+        )
+        .where(Magazine.status.in_(pub_statuses))
+    )
+    count_query = select(func.count()).select_from(Magazine).where(Magazine.status.in_(pub_statuses))
 
     if magazine_type:
         target = magazine_type.strip().lower()
@@ -53,7 +80,6 @@ async def _magazine_page(
             query = query.where(Magazine.magazine_type == matched_enum)
             count_query = count_query.where(Magazine.magazine_type == matched_enum)
         else:
-            # Non-native DB enum filter returns empty paginated response gracefully (200 OK)
             return paginated_payload([], page, limit, 0)
 
     if year:
@@ -66,7 +92,11 @@ async def _magazine_page(
         count_query = count_query.where(predicate)
 
     total = await db.scalar(count_query) or 0
-    result = await db.execute(query.order_by(Magazine.published_at.desc().nullslast(), Magazine.id.desc()).offset((page - 1) * limit).limit(limit))
+    result = await db.execute(
+        query.order_by(Magazine.published_at.desc().nullslast(), Magazine.id.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
     rows = list(result.scalars().all())
     media = await get_media_map(db)
     items = [await serialize_magazine(db, row, media=media, current_user_id=_current_user_id(request)) for row in rows]
@@ -108,15 +138,23 @@ async def magazine_by_year(
     return await _magazine_page(db, request, page, limit, year=year)
 
 
-@router.get("/{slug}")
-async def get_magazine_by_slug(slug: str, request: Request, db: AsyncSession = Depends(get_db)):
-    row = (
-        await db.execute(
-            select(Magazine)
-            .options(selectinload(Magazine.achievements), selectinload(Magazine.project_links))
-            .where(Magazine.slug == slug)
+@router.get("/{slug_or_id}")
+async def get_magazine_by_slug_or_id(slug_or_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    query = (
+        select(Magazine)
+        .options(
+            selectinload(Magazine.pages),
+            selectinload(Magazine.toc_entries),
+            selectinload(Magazine.achievements),
+            selectinload(Magazine.project_links),
         )
-    ).scalars().first()
+    )
+    if slug_or_id.isdigit():
+        query = query.where(Magazine.id == int(slug_or_id))
+    else:
+        query = query.where(Magazine.slug == slug_or_id)
+
+    row = (await db.execute(query)).scalars().first()
     if not row:
         raise NotFoundException("Magazine item not found.")
     return await serialize_magazine(db, row, current_user_id=_current_user_id(request))
@@ -150,3 +188,152 @@ async def magazine_bookmark(slug: str, request: Request, db: AsyncSession = Depe
 @router.delete("/{slug}/bookmark")
 async def magazine_unbookmark(slug: str, request: Request, db: AsyncSession = Depends(get_db)):
     return await unbookmark_contract(db, request, Magazine, slug, ContentKind.MAGAZINE)
+
+
+# ─── ADMIN MAGAZINE ENDPOINTS ──────────────────────────────────────────────────
+
+@admin_router.get("")
+async def admin_list_magazines(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    query = select(Magazine).options(
+        selectinload(Magazine.pages),
+        selectinload(Magazine.toc_entries),
+    ).order_by(Magazine.id.desc())
+    rows = list((await db.execute(query)).scalars().all())
+    return [
+        {
+            "id": str(m.id),
+            "title": m.title,
+            "slug": m.slug,
+            "description": m.description,
+            "year": m.publication_year,
+            "type": m.magazine_type.value if hasattr(m.magazine_type, "value") else str(m.magazine_type),
+            "status": m.status,
+            "pageCount": m.page_count,
+            "pdfUrl": m.pdf_url,
+            "coverImageUrl": m.cover_image_url,
+            "failureReason": m.failure_reason,
+            "issueDate": m.issue_date.isoformat() if m.issue_date else m.created_at.isoformat(),
+            "processedAt": m.processed_at.isoformat() if m.processed_at else None,
+            "createdAt": m.created_at.isoformat(),
+        }
+        for m in rows
+    ]
+
+
+@admin_router.post("/upload", status_code=status.HTTP_201_CREATED)
+async def upload_magazine_issue(
+    background_tasks: BackgroundTasks,
+    title: str = Form(...),
+    description: str = Form(None),
+    publication_year: int = Form(datetime.now().year),
+    magazine_type: str = Form("monthly"),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_super_admin),
+):
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be a PDF document.")
+
+    file_bytes = await file.read()
+    max_pdf_bytes = 50 * 1024 * 1024  # 50 MB
+    if len(file_bytes) > max_pdf_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded PDF exceeds maximum allowed size of 50 MB.")
+
+    os.makedirs("uploads/magazines", exist_ok=True)
+    pdf_filename = f"issue_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}.pdf"
+    pdf_save_path = os.path.join("uploads", "magazines", pdf_filename)
+
+    with open(pdf_save_path, "wb") as f:
+        f.write(file_bytes)
+
+    base_slug = slugify(title)
+    slug = base_slug
+    idx = 1
+    while await db.scalar(select(func.count()).select_from(Magazine).where(Magazine.slug == slug)):
+        slug = f"{base_slug}-{idx}"
+        idx += 1
+
+    try:
+        mag_type_enum = MagazineType(magazine_type.lower())
+    except ValueError:
+        mag_type_enum = MagazineType.MONTHLY
+
+    magazine = Magazine(
+        title=title.strip(),
+        slug=slug,
+        description=description.strip() if description else None,
+        publication_year=publication_year,
+        magazine_type=mag_type_enum,
+        pdf_url=f"/uploads/magazines/{pdf_filename}",
+        status="processing",
+        issue_date=datetime.now(timezone.utc),
+    )
+    db.add(magazine)
+    await db.commit()
+    await db.refresh(magazine)
+
+    # Trigger async background PDF processing pipeline
+    background_tasks.add_task(process_magazine_pdf, magazine.id, pdf_save_path)
+
+    return {
+        "message": "Magazine issue uploaded successfully. Background PDF page extraction & TOC generation started.",
+        "id": str(magazine.id),
+        "slug": magazine.slug,
+        "status": magazine.status,
+    }
+
+
+@admin_router.post("/{magazine_id}/replace-pdf")
+async def replace_magazine_pdf(
+    magazine_id: int,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_super_admin),
+):
+    magazine = await db.get(Magazine, magazine_id)
+    if not magazine:
+        raise NotFoundException("Magazine issue not found.")
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be a PDF document.")
+
+    os.makedirs("uploads/magazines", exist_ok=True)
+    pdf_filename = f"issue_{magazine_id}_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}.pdf"
+    pdf_save_path = os.path.join("uploads", "magazines", pdf_filename)
+
+    file_bytes = await file.read()
+    with open(pdf_save_path, "wb") as f:
+        f.write(file_bytes)
+
+    magazine.pdf_url = f"/uploads/magazines/{pdf_filename}"
+    magazine.status = "processing"
+    magazine.failure_reason = None
+    await db.commit()
+
+    # Re-trigger pipeline for replacement
+    background_tasks.add_task(process_magazine_pdf, magazine.id, pdf_save_path)
+
+    return {
+        "message": f"PDF replaced for magazine issue #{magazine_id}. Background processing re-started.",
+        "id": str(magazine.id),
+        "status": magazine.status,
+    }
+
+
+@admin_router.delete("/{magazine_id}")
+async def delete_magazine_issue(
+    magazine_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_super_admin),
+):
+    magazine = await db.get(Magazine, magazine_id)
+    if not magazine:
+        raise NotFoundException("Magazine issue not found.")
+
+    await db.delete(magazine)
+    await db.commit()
+    return {"message": "Magazine issue deleted successfully."}

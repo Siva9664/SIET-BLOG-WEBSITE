@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
+import { ErrorState } from "@/components/shared";
 
 interface TagItem {
   id: number;
@@ -10,16 +11,10 @@ interface TagItem {
   slug: string;
 }
 
-const FALLBACK_TAGS: TagItem[] = [
-  { id: 1, name: "RAG Systems", slug: "rag-systems" },
-  { id: 2, name: "Robotics", slug: "robotics" },
-  { id: 3, name: "Machine Learning", slug: "machine-learning" },
-  { id: 4, name: "AI Ethics", slug: "ai-ethics" },
-];
-
 export default function AdminTagsCRUDPage() {
   const [items, setItems] = useState<TagItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Drawer / Form State
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -37,12 +32,13 @@ export default function AdminTagsCRUDPage() {
   // Load Data
   const loadTags = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.adminTags();
-      setItems(res);
-    } catch (err) {
-      console.warn("Admin tags API offline, loading static tags mock fallbacks.", err);
-      setItems(FALLBACK_TAGS);
+      setItems(res || []);
+    } catch (err: any) {
+      setItems([]);
+      setLoadError(err?.message || "Failed to load system tags from backend API.");
     } finally {
       setLoading(false);
     }
@@ -91,20 +87,8 @@ export default function AdminTagsCRUDPage() {
       }
       setIsDrawerOpen(false);
       loadTags();
-    } catch (err) {
-      console.error("Save failure:", err);
-      const mockSavedItem: TagItem = {
-        id: editItem?.id || Date.now(),
-        name,
-        slug,
-      };
-
-      if (editItem) {
-        setItems(items.map((i) => (i.id === editItem.id ? mockSavedItem : i)));
-      } else {
-        setItems([...items, mockSavedItem]);
-      }
-      setIsDrawerOpen(false);
+    } catch (err: any) {
+      setFormError(err?.message || "Failed to save tag to server.");
     } finally {
       setSubmitting(false);
     }
@@ -115,9 +99,8 @@ export default function AdminTagsCRUDPage() {
     try {
       await api.adminTagDelete(id);
       loadTags();
-    } catch (err) {
-      console.warn("Delete call failed. Applying offline item removal.", err);
-      setItems(items.filter((i) => i.id !== id));
+    } catch (err: any) {
+      console.error("Delete tag failure:", err);
     } finally {
       setConfirmDeleteId(null);
     }
@@ -143,73 +126,77 @@ export default function AdminTagsCRUDPage() {
         </button>
       </div>
 
-      {/* Main Table grid */}
-      <div className="border border-line bg-paper">
-        {loading ? (
-          <div className="p-8 text-center font-display text-xs italic text-ink-soft">
-            Querying tag records...
-          </div>
-        ) : items.length > 0 ? (
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-line bg-paper-2 font-util text-[10px] text-ink-soft uppercase tracking-wider">
-                <th className="p-4 font-semibold">Tag Name</th>
-                <th className="p-4 font-semibold">URL Slug</th>
-                <th className="p-4 font-semibold text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {items.map((item) => (
-                <tr key={item.id} className="hover:bg-paper-2 transition-colors">
-                  <td className="p-4 font-display font-medium text-ink">
-                    {item.name}
-                  </td>
-                  <td className="p-4 font-mono text-ink-soft">#{item.slug}</td>
-                  <td className="p-4 text-right space-x-3">
-                    {confirmDeleteId === item.id ? (
-                      <span className="font-util text-[10px] uppercase tracking-wider text-accent space-x-2">
-                        <span>Confirm?</span>
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          className="underline hover:text-ink cursor-pointer font-bold"
-                        >
-                          Yes
-                        </button>
-                        <span className="text-line">/</span>
-                        <button
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="underline hover:text-ink cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                      </span>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => handleOpenEdit(item)}
-                          className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteId(item.id)}
-                          className="font-util text-[10px] uppercase tracking-wider text-accent hover:text-ink cursor-pointer underline"
-                        >
-                          Delete
-                        </button>
-                      </>
-                    )}
-                  </td>
+      {loadError ? (
+        <ErrorState title="Failed to Load Tags" message={loadError} onRetry={loadTags} />
+      ) : (
+        /* Main Table grid */
+        <div className="border border-line bg-paper">
+          {loading ? (
+            <div className="p-8 text-center font-display text-xs italic text-ink-soft">
+              Querying tag records...
+            </div>
+          ) : items.length > 0 ? (
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-line bg-paper-2 font-util text-[10px] text-ink-soft uppercase tracking-wider">
+                  <th className="p-4 font-semibold">Tag Name</th>
+                  <th className="p-4 font-semibold">URL Slug</th>
+                  <th className="p-4 font-semibold text-right">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="p-8 text-center font-body text-xs italic text-ink-soft">
-            No system tags exist in the database.
-          </div>
-        )}
-      </div>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {items.map((item) => (
+                  <tr key={item.id} className="hover:bg-paper-2 transition-colors">
+                    <td className="p-4 font-display font-medium text-ink">
+                      {item.name}
+                    </td>
+                    <td className="p-4 font-mono text-ink-soft">#{item.slug}</td>
+                    <td className="p-4 text-right space-x-3">
+                      {confirmDeleteId === item.id ? (
+                        <span className="font-util text-[10px] uppercase tracking-wider text-accent space-x-2">
+                          <span>Confirm?</span>
+                          <button
+                            onClick={() => handleDelete(item.id)}
+                            className="underline hover:text-ink cursor-pointer font-bold"
+                          >
+                            Yes
+                          </button>
+                          <span className="text-line">/</span>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="underline hover:text-ink cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleOpenEdit(item)}
+                            className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(item.id)}
+                            className="font-util text-[10px] uppercase tracking-wider text-accent hover:text-ink cursor-pointer underline"
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="p-8 text-center font-body text-xs italic text-ink-soft">
+              No system tags exist in the database.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Drawer Overlay Backdrop */}
       {isDrawerOpen && (

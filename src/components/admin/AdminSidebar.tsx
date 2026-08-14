@@ -11,38 +11,51 @@ interface AdminSidebarProps {
   user: User;
 }
 
-const NAV_SECTIONS = [
-  {
-    label: "Overview",
-    items: [
-      { label: "Dashboard", href: "/admin", icon: "⬛", badge: null },
-      { label: "Analytics", href: "/admin/analytics", icon: "📊", badge: null },
-    ],
-  },
-  {
-    label: "Content",
-    items: [
-      { label: "News Records", href: "/admin/news", icon: "📰", badge: null },
-      { label: "Articles Desk", href: "/admin/articles", icon: "📄", badge: null },
-      { label: "Magazine Wins", href: "/admin/magazine", icon: "🏆", badge: null },
-      { label: "Media Library", href: "/admin/media", icon: "🖼️", badge: null },
-    ],
-  },
-  {
-    label: "Taxonomy",
-    items: [
-      { label: "Domains List", href: "/admin/domains", icon: "🗂️", badge: null },
-      { label: "Tags Directory", href: "/admin/tags", icon: "🏷️", badge: null },
-    ],
-  },
-  {
-    label: "Administration",
-    items: [
-      { label: "User Access", href: "/admin/users", icon: "👥", badge: null },
-      { label: "System Settings", href: "/admin/settings", icon: "⚙️", badge: null },
-    ],
-  },
-];
+function getNavSections(role: string) {
+  const isSuperAdmin = role?.toUpperCase() === "SUPER_ADMIN";
+
+  const contentItems = [
+    { label: "News Records", href: "/admin/news", icon: "📰", badge: null },
+    { label: "Articles Desk", href: "/admin/articles", icon: "📄", badge: null },
+  ];
+  if (isSuperAdmin) {
+    contentItems.push({ label: "Magazine Wins", href: "/admin/magazine", icon: "🏆", badge: null });
+  }
+  contentItems.push({ label: "Media Library", href: "/admin/media", icon: "🖼️", badge: null });
+
+  const adminItems = [
+    { label: "User Access", href: "/admin/users", icon: "👥", badge: null },
+  ];
+  if (isSuperAdmin) {
+    adminItems.push({ label: "Manage Admins", href: "/admin/admins", icon: "🛡️", badge: null });
+  }
+  adminItems.push({ label: "System Settings", href: "/admin/settings", icon: "⚙️", badge: null });
+
+  return [
+    {
+      label: "Overview",
+      items: [
+        { label: "Dashboard", href: "/admin", icon: "⬛", badge: null },
+        { label: "Analytics", href: "/admin/analytics", icon: "📊", badge: null },
+      ],
+    },
+    {
+      label: "Content",
+      items: contentItems,
+    },
+    {
+      label: "Taxonomy",
+      items: [
+        { label: "Domains List", href: "/admin/domains", icon: "🗂️", badge: null },
+        { label: "Tags Directory", href: "/admin/tags", icon: "🏷️", badge: null },
+      ],
+    },
+    {
+      label: "Administration",
+      items: adminItems,
+    },
+  ];
+}
 
 export function AdminSidebar({ user }: AdminSidebarProps) {
   const pathname = usePathname();
@@ -129,7 +142,7 @@ export function AdminSidebar({ user }: AdminSidebarProps) {
 
           {/* Navigation by section */}
           <nav className="flex-1 py-4 px-3 space-y-5">
-            {NAV_SECTIONS.map((section) => (
+            {getNavSections(user.role).map((section) => (
               <div key={section.label}>
                 <p className="font-util text-[9px] text-ink-soft uppercase tracking-widest px-2 mb-1.5">
                   {section.label}

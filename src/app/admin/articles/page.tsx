@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useState, useEffect, useMemo } from "react";
 import { api } from "@/lib/api";
-import { CursorPagination } from "@/components/shared";
+import { CursorPagination, ErrorState } from "@/components/shared";
 import {
   AdminDrawer,
   AdminTable,
@@ -16,37 +16,6 @@ import {
 } from "@/components/admin/AdminShared";
 import type { Article, Domain } from "@/lib/types";
 
-// ─── Fallbacks ───────────────────────────────────────────────────────────────
-const FALLBACK_DOMAINS: Domain[] = [
-  { slug: "machine-learning", name: "Machine Learning", count: 42 },
-  { slug: "robotics", name: "Robotics", count: 19 },
-  { slug: "campus-research", name: "Campus Research", count: 27 },
-  { slug: "ethics", name: "AI Ethics", count: 12 },
-];
-
-const FALLBACK_ARTICLES: Article[] = [
-  {
-    id: "art1",
-    slug: "building-responsible-rag",
-    title: "What we learned building a responsible retrieval system",
-    excerpt: "A student note on source quality, citation habits, and why retrieval interfaces often create better reading.",
-    body: "<p>Retrieval-Augmented Generation (RAG) is quickly becoming the standard architecture...</p>",
-    author: {
-      id: "a1",
-      name: "Kaviya Raman",
-      role: "Student Author",
-      avatar: "",
-      department: "AI and Data Science",
-    },
-    domain: FALLBACK_DOMAINS[3],
-    tags: [{ slug: "rag", name: "RAG" }],
-    cover: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=900&q=80",
-    publishedAt: "2026-07-06T10:00:00.000Z",
-    readingMinutes: 6,
-    likes: 142,
-  },
-];
-
 function toSlug(str: string) {
   return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
@@ -54,15 +23,15 @@ function fmt(iso: string) {
   return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function AdminArticlesCRUDPage() {
   const [allItems, setAllItems] = useState<Article[]>([]);
-  const [domains, setDomains] = useState<Domain[]>(FALLBACK_DOMAINS);
+  const [domains, setDomains] = useState<Domain[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([null]);
   const [hasMore, setHasMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" | "info" } | null>(null);
 
   // Filters
@@ -116,13 +85,15 @@ export default function AdminArticlesCRUDPage() {
 
   const loadArticles = async (cur: string | null) => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await api.adminArticles(cur ? `?cursor=${cur}` : "");
-      setAllItems(res.items);
+      setAllItems(res.items || []);
       setHasMore(res.pageInfo.has_more);
       setNextCursor(res.pageInfo.next_cursor);
-    } catch {
-      setAllItems(FALLBACK_ARTICLES);
+    } catch (err: any) {
+      setAllItems([]);
+      setLoadError(err?.message || "Failed to load research articles from backend API.");
       setHasMore(false);
       setNextCursor(null);
     } finally {
@@ -132,7 +103,7 @@ export default function AdminArticlesCRUDPage() {
 
   useEffect(() => { loadArticles(cursor); }, [cursor]);
   useEffect(() => {
-    api.domains().then(setDomains).catch(() => setDomains(FALLBACK_DOMAINS));
+    api.domains().then(setDomains).catch(() => setDomains([]));
   }, []);
 
   const handleNext = () => {
@@ -174,7 +145,7 @@ export default function AdminArticlesCRUDPage() {
     }
     setSubmitting(true);
     setFormError(null);
-    const activeDomain = domains.find((d) => d.slug === domainSlug) || FALLBACK_DOMAINS[0];
+    const activeDomain = domains.find((d) => d.slug === domainSlug) || { slug: domainSlug, name: domainSlug, count: 0 };
     const tagsArray = tagsCsv.split(",").map((t) => t.trim()).filter(Boolean).map((tag) => ({ name: tag, slug: toSlug(tag) }));
     const payload = {
       title, slug, excerpt, body,
@@ -187,12 +158,8 @@ export default function AdminArticlesCRUDPage() {
       else { await api.adminArticlesCreate(payload); showToast("Article created.", "success"); }
       setDrawerOpen(false);
       loadArticles(cursor);
-    } catch {
-      const mock: Article = { id: editItem?.id || `art-${Date.now()}`, ...payload, likes: editItem?.likes || 0 };
-      if (editItem) setAllItems((p) => p.map((i) => (i.id === editItem.id ? mock : i)));
-      else setAllItems((p) => [mock, ...p]);
-      showToast("Saved locally (API offline).", "info");
-      setDrawerOpen(false);
+    } catch (err: any) {
+      showToast(err?.message || "Failed to save article to server.", "error");
     } finally {
       setSubmitting(false);
     }
@@ -203,9 +170,8 @@ export default function AdminArticlesCRUDPage() {
       await api.adminArticlesDelete(id);
       loadArticles(cursor);
       showToast("Article deleted.", "success");
-    } catch {
-      setAllItems((p) => p.filter((i) => i.id !== id));
-      showToast("Removed locally (API offline).", "info");
+    } catch (err: any) {
+      showToast(err?.message || "Failed to delete article.", "error");
     } finally {
       setConfirmDeleteId(null);
     }
@@ -242,40 +208,44 @@ export default function AdminArticlesCRUDPage() {
         }
       />
 
-      {/* Table */}
-      <AdminTable columns={["Title", "Author", "Domain", "Reading", "Likes", "Published", "Actions"]} loading={loading} empty="No articles match your filters.">
-        {items.map((item) => (
-          <tr key={item.id} className="hover:bg-paper-2 transition-colors">
-            <td className="p-4 max-w-xs">
-              <p className="font-display font-medium text-ink truncate">{item.title}</p>
-              <p className="font-util text-[9px] text-ink-soft mt-0.5 truncate">{item.slug}</p>
-            </td>
-            <td className="p-4">
-              <p className="font-display text-xs text-ink">{item.author?.name ?? "—"}</p>
-              <p className="font-util text-[9px] text-ink-soft uppercase tracking-wider">{item.author?.department?.split(" ")[0] || item.author?.role || ""}</p>
-            </td>
-            <td className="p-4 font-util text-[10px] text-ink-soft uppercase tracking-wider whitespace-nowrap">{item.domain?.name ?? "General"}</td>
-            <td className="p-4 font-util text-[10px] text-ink-soft whitespace-nowrap">{item.readingMinutes} min</td>
-            <td className="p-4 font-util text-[10px] text-ink-soft">♥ {item.likes}</td>
-            <td className="p-4 font-util text-[10px] text-ink-soft whitespace-nowrap">{fmt(item.publishedAt)}</td>
-            <td className="p-4 text-right whitespace-nowrap">
-              {confirmDeleteId === item.id ? (
-                <span className="font-util text-[10px] uppercase tracking-wider text-red-600 space-x-2">
-                  <span>Delete?</span>
-                  <button onClick={() => handleDelete(item.id)} className="underline cursor-pointer font-bold">Yes</button>
-                  <span className="text-line">/</span>
-                  <button onClick={() => setConfirmDeleteId(null)} className="underline cursor-pointer text-ink">No</button>
-                </span>
-              ) : (
-                <>
-                  <button onClick={() => openEdit(item)} className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline transition-colors">Edit</button>
-                  <button onClick={() => setConfirmDeleteId(item.id)} className="font-util text-[10px] uppercase tracking-wider text-red-500 hover:text-ink cursor-pointer underline ml-3 transition-colors">Delete</button>
-                </>
-              )}
-            </td>
-          </tr>
-        ))}
-      </AdminTable>
+      {loadError ? (
+        <ErrorState title="Failed to Load Articles" message={loadError} onRetry={() => loadArticles(cursor)} />
+      ) : (
+        /* Table */
+        <AdminTable columns={["Title", "Author", "Domain", "Reading", "Likes", "Published", "Actions"]} loading={loading} empty="No articles match your filters.">
+          {items.map((item) => (
+            <tr key={item.id} className="hover:bg-paper-2 transition-colors">
+              <td className="p-4 max-w-xs">
+                <p className="font-display font-medium text-ink truncate">{item.title}</p>
+                <p className="font-util text-[9px] text-ink-soft mt-0.5 truncate">{item.slug}</p>
+              </td>
+              <td className="p-4">
+                <p className="font-display text-xs text-ink">{item.author?.name ?? "—"}</p>
+                <p className="font-util text-[9px] text-ink-soft uppercase tracking-wider">{item.author?.department?.split(" ")[0] || item.author?.role || ""}</p>
+              </td>
+              <td className="p-4 font-util text-[10px] text-ink-soft uppercase tracking-wider whitespace-nowrap">{item.domain?.name ?? "General"}</td>
+              <td className="p-4 font-util text-[10px] text-ink-soft whitespace-nowrap">{item.readingMinutes} min</td>
+              <td className="p-4 font-util text-[10px] text-ink-soft">♥ {item.likes}</td>
+              <td className="p-4 font-util text-[10px] text-ink-soft whitespace-nowrap">{fmt(item.publishedAt)}</td>
+              <td className="p-4 text-right whitespace-nowrap">
+                {confirmDeleteId === item.id ? (
+                  <span className="font-util text-[10px] uppercase tracking-wider text-red-600 space-x-2">
+                    <span>Delete?</span>
+                    <button onClick={() => handleDelete(item.id)} className="underline cursor-pointer font-bold">Yes</button>
+                    <span className="text-line">/</span>
+                    <button onClick={() => setConfirmDeleteId(null)} className="underline cursor-pointer text-ink">No</button>
+                  </span>
+                ) : (
+                  <>
+                    <button onClick={() => openEdit(item)} className="font-util text-[10px] uppercase tracking-wider hover:text-accent cursor-pointer underline transition-colors">Edit</button>
+                    <button onClick={() => setConfirmDeleteId(item.id)} className="font-util text-[10px] uppercase tracking-wider text-red-500 hover:text-ink cursor-pointer underline ml-3 transition-colors">Delete</button>
+                  </>
+                )}
+              </td>
+            </tr>
+          ))}
+        </AdminTable>
+      )}
 
       {(hasMore || cursorHistory.length > 1) && (
         <div className="flex justify-center pt-2">
