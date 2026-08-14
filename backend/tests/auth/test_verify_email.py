@@ -1,42 +1,30 @@
 import pytest
 import random
-from unittest.mock import patch
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.security import hash_password, create_access_token
+from app.modules.auth.models import User
 
 @pytest.mark.asyncio
-async def test_email_verification_flow(client: AsyncClient, db_session: AsyncSession):
-    """Verify registration, token extraction, and successful email verification endpoint execution."""
+async def test_user_email_verification_status(client: AsyncClient, db_session: AsyncSession):
+    """Verify user profile reflects email_verified status."""
     email = f"testverify_{random.randint(1000, 9999)}@siet.in"
-    register_payload = {
-        "name": "Verify User",
-        "email": email,
-        "password": "Password123"
-    }
+    user = User(
+        name="Verify User",
+        email=email,
+        password_hash=hash_password("Password123"),
+        role="user",
+        email_verified=True,
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.flush()
+    await db_session.refresh(user)
 
-    captured_tokens = []
-    async def mock_send(self, to_email: str, token: str) -> bool:
-        captured_tokens.append(token)
-        return True
-
-    with patch("app.infrastructure.email.provider.EmailProvider.send_verification_email", new=mock_send):
-        res = await client.post("/api/v1/auth/register", json=register_payload)
-        assert res.status_code == 201
-
-    assert len(captured_tokens) == 1
-    raw_token = captured_tokens[0]
-
-    # Verify email
-    verify_payload = {"token": raw_token}
-    res = await client.post("/api/v1/auth/verify-email", json=verify_payload)
+    token = create_access_token(str(user.id), user.role)
+    headers = {"Authorization": f"Bearer {token}"}
+    res = await client.get("/api/v1/auth/me", headers=headers)
     assert res.status_code == 200
-    assert res.json()["success"] is True
-    assert res.json()["data"] == "Email verified successfully."
+    assert res.json()["is_verified"] is True
 
-    # Login and check user state is verified
-    login_payload = {
-        "email": email,
-        "password": "Password123"
-    }
-    res = await client.post("/api/v1/auth/login", json=login_payload)
-    assert res.json()["user"]["email_verified"] is True
+

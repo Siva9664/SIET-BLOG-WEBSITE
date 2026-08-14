@@ -1,22 +1,30 @@
 import pytest
 import random
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.security import hash_password
+from app.modules.auth.models import User
 
 @pytest.mark.asyncio
-async def test_token_refresh(client: AsyncClient):
+async def test_token_refresh(client: AsyncClient, db_session: AsyncSession):
     """Verify standard access token refresh lifecycle using refresh token."""
     email = f"testrefresh_{random.randint(1000, 9999)}@siet.in"
-    register_payload = {
-        "name": "Refresh User",
-        "email": email,
-        "password": "Password123"
-    }
-    res = await client.post("/api/v1/auth/register", json=register_payload)
-    assert res.status_code == 201
+    password = "Password123"
+    
+    user = User(
+        name="Refresh User",
+        email=email,
+        password_hash=hash_password(password),
+        role="user",
+        email_verified=True,
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.flush()
 
     login_payload = {
         "email": email,
-        "password": "Password123"
+        "password": password
     }
     res = await client.post("/api/v1/auth/login", json=login_payload)
     assert res.status_code == 200
@@ -28,3 +36,4 @@ async def test_token_refresh(client: AsyncClient):
     assert res.status_code == 200
     assert res.json()["success"] is True
     assert res.json()["data"]["access_token"] is not None
+

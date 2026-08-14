@@ -10,11 +10,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import httpx
 from sqlalchemy import select, delete
 from app.core.database import async_session_maker
+from app.modules.auth.models import User
 from app.modules.domains.models import Domain
 from app.modules.media.models import Media
 from app.modules.news.models import News
 from app.shared.types.content import ContentStatus, MediaType
 from app.shared.utils.slugs import ensure_unique_slug, generate_slug
+
 
 # High resolution tech cover images
 CATEGORY_IMAGES = {
