@@ -18,6 +18,7 @@ Public Endpoints:
   GET    /magazine/archive               - is_featured=False magazines (>90 days, last 12 months)
   GET    /magazine/{slug}                - Single magazine reader view
 """
+import json
 import os
 import re
 import uuid
@@ -52,6 +53,7 @@ from app.modules.magazine.ai_service import (
     generate_gallery_captions,
     generate_toc_entry,
 )
+from app.modules.magazine.file_parser import parse_event_file
 from app.shared.auth.dependencies import require_admin, require_super_admin
 from app.shared.exceptions.custom import NotFoundException
 from app.shared.types.content import ContentKind, MagazineType
@@ -287,7 +289,7 @@ async def admin_list_magazines(
         selectinload(Magazine.pages), selectinload(Magazine.toc_entries),
     ).order_by(Magazine.id.desc())
     rows = list((await db.execute(query)).scalars().all())
-    return [_magazine_row(m) for m in rows]
+    return success([_magazine_row(m) for m in rows])
 
 
 @admin_router.post("/create", status_code=status.HTTP_201_CREATED)
@@ -298,10 +300,11 @@ async def create_event_magazine(
     event_date: str = Form(None),          # ISO date string e.g. 2026-08-14
     magazine_type: str = Form("special"),
     publication_year: int = Form(datetime.now().year),
+    gallery_images_json: str = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin),
 ):
-    """Step 1: Create a new event magazine entry. No file required yet."""
+    """Step 1: Create a new event magazine entry. Pre-populates gallery images if extracted."""
     slug = await _unique_slug(db, slugify(title))
     try:
         mt = MagazineType(magazine_type.lower())
@@ -313,6 +316,13 @@ async def create_event_magazine(
         try:
             parsed_event_date = datetime.fromisoformat(event_date).replace(tzinfo=timezone.utc)
         except ValueError:
+            pass
+
+    initial_gallery = []
+    if gallery_images_json:
+        try:
+            initial_gallery = json.loads(gallery_images_json)
+        except Exception:
             pass
 
     mag = Magazine(
@@ -329,7 +339,8 @@ async def create_event_magazine(
         featured_until=datetime.now(timezone.utc) + timedelta(days=MAGAZINE_FEATURED_DAYS),
         cover_pages=[],
         body_pages=[],
-        gallery_images=[],
+        gallery_images=initial_gallery,
+        page_count=len(initial_gallery),
     )
     db.add(mag)
     await db.commit()
@@ -620,6 +631,63 @@ async def api_auto_generate_full(
         photo_count=payload.photo_count,
     )
     return success(res)
+
+
+@admin_router.post("/ai/auto-generate-from-file")
+async def api_auto_generate_from_file(
+    file: UploadFile = File(...),
+    event_name: str = Form(""),
+    event_date: str = Form(""),
+    current_user=Depends(require_admin),
+):
+    """
+    FILE UPLOAD AUTO-RECOGNITION & ONE-CLICK AUTO-FILL:
+    Extracts text + embedded images from docx, pdf, or txt file, auto-detects event info,
+    and feeds into the AI generation pipeline in 1 call.
+    """
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    try:
+        parsed_data = parse_event_file(file_bytes, file.filename or "event_file.txt")
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse uploaded file '{file.filename}': {str(e)}"
+        )
+
+    extracted_notes = parsed_data["extracted_notes"]
+    extracted_images = parsed_data["extracted_images"]
+
+    final_event_name = event_name.strip() if event_name.strip() else parsed_data["detected_event_name"]
+    final_event_date = event_date.strip() if event_date.strip() else parsed_data["detected_event_date"]
+
+    if not extracted_notes and not final_event_name:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not extract any readable content from the uploaded file."
+        )
+
+    # Call AI Generation service
+    ai_result = await generate_full_magazine_content(
+        event_name=final_event_name,
+        event_date=final_event_date,
+        raw_notes=extracted_notes,
+        photo_count=len(extracted_images),
+    )
+
+    # Combine response
+    response_data = {
+        **ai_result,
+        "detected_event_name": final_event_name,
+        "detected_event_date": final_event_date,
+        "extracted_notes": extracted_notes,
+        "extracted_images": extracted_images,
+    }
+
+    return success(response_data)
+
 
 
 @admin_router.post("/ai/generate-overview")

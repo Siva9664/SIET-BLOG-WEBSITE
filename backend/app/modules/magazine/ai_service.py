@@ -12,6 +12,11 @@ import httpx
 from typing import List, Dict, Any, Optional
 
 from app.core.logging import logger
+from app.modules.magazine.style_guide import (
+    SIET_MAGAZINE_STYLE_GUIDE,
+    FEW_SHOT_EXAMPLES,
+    get_best_matching_few_shot,
+)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or ""
@@ -69,23 +74,50 @@ async def generate_full_magazine_content(
     photo_count: int = 0
 ) -> Dict[str, Any]:
     """
-    One-click AI call to generate Title, Description, Writeup, Captions, and TOC Summary.
+    One-click AI call to generate Title, Description, Writeup, Captions, and TOC Summary
+    guided strictly by the SIET Style Guide and auto-selected Few-Shot past article examples.
     """
-    prompt = f"""You are creating content for a college engineering magazine issue.
+    matched_example = get_best_matching_few_shot(raw_notes=raw_notes, event_name=event_name)
 
-Event name: {event_name}
-Event date: {event_date}
-Raw notes from admin: {raw_notes}
-Number of photos uploaded: {photo_count}
+    example_json_repr = json.dumps({
+        "magazine_issue_title": matched_example["output_title"],
+        "description": matched_example["output_description"],
+        "writeup": matched_example["output_writeup"],
+        "captions": matched_example["captions"],
+        "toc_summary": matched_example["toc_summary"],
+    }, indent=2)
 
-Generate the following and return as JSON:
+    prompt = f"""You are the official content writer for the SIET Engineering Magazine (Sri Shakthi Institute of Engineering & Technology).
 
+STYLE GUIDE (follow strictly):
+{SIET_MAGAZINE_STYLE_GUIDE}
+
+EXAMPLE OF A PREVIOUS MAGAZINE ARTICLE WRITTEN IN THE EXACT SIET HOUSE STYLE:
+Raw notes provided:
+{matched_example["raw_notes"]}
+
+Output JSON generated:
+```json
+{example_json_repr}
+```
+
+---
+Now generate magazine content for the NEW event below, strictly following the exact same style, tone, structure, and formatting standards as shown in the style guide and exemplar above.
+
+Target Event Details:
+- Event name: {event_name or 'SIET Engineering Event'}
+- Event date: {event_date or 'Recent'}
+- Extracted/raw event notes:
+{raw_notes}
+- Number of photos uploaded: {photo_count}
+
+Return the output ONLY as valid JSON in this exact structure:
 {{
   "magazine_issue_title": "short catchy title for this issue",
-  "description": "3-4 sentence polished event overview, professional but engaging tone",
-  "writeup": "400-600 word magazine article with a headline and 2-3 subheadings",
-  "captions": ["one short caption per photo, max 12 words each, numbered in order"],
-  "toc_summary": "one line, max 15 words, summarizing the issue for a table of contents"
+  "description": "3-4 sentence polished event overview following the style guide",
+  "writeup": "400-600 word magazine article with a main headline and 2-3 subheadings",
+  "captions": ["one short caption per photo, max 12 words each, factual and non-flowery"],
+  "toc_summary": "one line, max 15 words, summarizing the issue for table of contents"
 }}
 
 Only return valid JSON, no extra text."""

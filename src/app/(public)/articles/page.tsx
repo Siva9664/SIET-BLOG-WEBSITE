@@ -3,6 +3,8 @@ import { api } from "@/lib/api";
 import { ContentCard, DomainFilter, Pagination, EmptyState, ErrorState } from "@/components/shared";
 import type { Article, Domain } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 type SearchParams = Promise<{
   domain?: string;
   page?: string;

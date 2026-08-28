@@ -83,3 +83,30 @@ Date: August 14, 2026
    - **`vlsi-semiconductor`**: Count updated from **9** to **19**.
    - **Public `/news` Total**: Reflected immediately as **209** for today's scope (`Today's News (209)`).
 
+---
+
+---
+
+## Verified Production News Pipeline Reset & Grounding Report
+
+- **Timestamp**: August 14, 2026 11:48:22 IST
+- **Audit Finding**: Initial reset pass ran `fetch_todays_news.py`, a legacy helper script that bypassed the full production pipeline (`app.modules.news.pipeline.run_sync_pipeline`). This left `source_id` NULL and `content_depth = summary_only` without full-text extraction or multi-source story coverage.
+- **Corrective Action**:
+  1. Re-cleared news data: `DELETE FROM story_coverage; DELETE FROM sync_logs; DELETE FROM news;`.
+  2. Executed full production pipeline `run_sync_pipeline(is_full_sync=True)` across all 28 registered tech sources.
+- **Pipeline Results**:
+  - `duration_seconds`: **208.19s**
+  - `sources_checked`: **28** RSS feeds
+  - `articles_discovered`: **199**
+  - `articles_new`: **187**
+  - `articles_duplicate`: **12**
+  - `articles_failed`: **0**
+  - `status`: **`success`**
+- **Verified Real Data Verification**:
+  - `SELECT count(*) FROM news;` ➔ **187** (matches `articles_new` exactly).
+  - `SELECT count(*) FROM story_coverage;` ➔ **189** (includes primary + secondary multi-source story coverage links).
+  - Every row contains a valid `source_id` linking to an active row in `sources`, `processing_status = "processed"`, `content_depth` set via `trafilatura` extraction, and real live resolvable article URLs (e.g. `https://arstechnica.com/security/2026/08/...`, `https://arxiv.org/abs/2608.12325`, `https://www.technologyreview.com/2026/08/...`).
+  - `todayAccuracy` on Admin Dashboard reflects **187 verified, 0 flagged, 0 failed, 187 total**.
+
+
+

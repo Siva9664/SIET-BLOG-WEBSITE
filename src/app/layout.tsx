@@ -7,6 +7,7 @@ const fraunces = Fraunces({
   weight: ["400", "500", "600"],
   display: "swap",
   variable: "--font-fraunces",
+  fallback: ["Georgia", "serif"],
 });
 
 const newsreader = Newsreader({
@@ -14,6 +15,7 @@ const newsreader = Newsreader({
   weight: ["400", "500"],
   display: "swap",
   variable: "--font-newsreader",
+  fallback: ["Times New Roman", "serif"],
 });
 
 const spaceGrotesk = Space_Grotesk({
@@ -21,7 +23,9 @@ const spaceGrotesk = Space_Grotesk({
   weight: ["400", "500"],
   display: "swap",
   variable: "--font-space-grotesk",
+  fallback: ["Arial", "sans-serif"],
 });
+
 
 export const metadata: Metadata = {
   title: "SIET News",

@@ -2,11 +2,13 @@
 
 import * as React from "react";
 import { useState, useEffect, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Breadcrumb, ContentCard, LoadingSkeleton, EmptyState, Pagination, ErrorState } from "@/components/shared";
 import type { User, NewsItem, Article, Achievement } from "@/lib/types";
+
+export const dynamic = "force-dynamic";
 
 interface GroupedData {
   news: NewsItem[];
@@ -37,9 +39,8 @@ const mapAchievement = (item: Achievement): CombinedItem => ({
   date: new Date(`${item.year}-01-01T00:00:00.000Z`).getTime()
 });
 
-function ProfileContent() {
+function ProfileContent({ tab, currentPage }: { tab: string; currentPage: number }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   
   const [user, setUser] = useState<User | null>(null);
   const [likes, setLikes] = useState<GroupedData>({ news: [], articles: [], magazine: [] });
@@ -47,9 +48,6 @@ function ProfileContent() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const tab = searchParams.get("tab") === "bookmarks" ? "bookmarks" : "likes";
-  const pageParam = searchParams.get("page");
-  const currentPage = pageParam ? parseInt(pageParam, 10) : 1;
   const itemsPerPage = 6;
 
   async function loadData() {
@@ -210,6 +208,22 @@ function ProfileContent() {
   );
 }
 
+function ProfileContentInner() {
+  const [tab, setTab] = useState("likes");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      setTab(params.get("tab") === "bookmarks" ? "bookmarks" : "likes");
+      const p = params.get("page");
+      setCurrentPage(p ? parseInt(p, 10) : 1);
+    }
+  }, []);
+
+  return <ProfileContent tab={tab} currentPage={currentPage} />;
+}
+
 export default function ProfilePage() {
   return (
     <Suspense
@@ -219,7 +233,7 @@ export default function ProfilePage() {
         </div>
       }
     >
-      <ProfileContent />
+      <ProfileContentInner />
     </Suspense>
   );
 }

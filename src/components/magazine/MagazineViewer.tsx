@@ -48,15 +48,15 @@ export function MagazineViewer({ issue }: { issue: MagazineIssue }) {
           >
             {tocEntries.length > 0
               ? tocEntries.map((toc) => (
-                  <option key={toc.id || toc.pageNumber} value={toc.pageNumber}>
-                    Page {toc.pageNumber}: {toc.heading}
-                  </option>
-                ))
+                <option key={toc.id || toc.pageNumber} value={toc.pageNumber}>
+                  Page {toc.pageNumber}: {toc.heading}
+                </option>
+              ))
               : Array.from({ length: totalPages }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>
-                    Page {i + 1}
-                  </option>
-                ))}
+                <option key={i + 1} value={i + 1}>
+                  Page {i + 1}
+                </option>
+              ))}
           </select>
         </div>
 

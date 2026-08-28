@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, Suspense } from "react";
+import { usePathname } from "next/navigation";
 
-export function ScrollReveal() {
+function ScrollRevealInner() {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
 
   useEffect(() => {
     let intersectionObserver: IntersectionObserver | null = null;
@@ -62,7 +61,15 @@ export function ScrollReveal() {
       if (intersectionObserver) intersectionObserver.disconnect();
       if (mutationObserver) mutationObserver.disconnect();
     };
-  }, [pathname, searchParams]);
+  }, [pathname]);
 
   return null;
+}
+
+export function ScrollReveal() {
+  return (
+    <Suspense fallback={null}>
+      <ScrollRevealInner />
+    </Suspense>
+  );
 }

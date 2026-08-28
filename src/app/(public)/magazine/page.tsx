@@ -4,6 +4,8 @@ import { api } from "@/lib/api";
 import { Pagination, EmptyState, TagChip } from "@/components/shared";
 import type { MagazineIssue } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 const FREQUENCIES = [
   { label: "All Editions", value: "" },
   { label: "Monthly", value: "monthly" },

@@ -8,7 +8,7 @@ interface NewsSearchInputProps {
   department?: string;
 }
 
-export function NewsSearchInput({
+function NewsSearchInputInner({
   placeholder = "Search across all active news (title, summary, tags, source)...",
   department = "",
 }: NewsSearchInputProps) {
@@ -93,5 +93,13 @@ export function NewsSearchInput({
         </p>
       )}
     </div>
+  );
+}
+
+export function NewsSearchInput(props: NewsSearchInputProps) {
+  return (
+    <React.Suspense fallback={<div className="w-full max-w-2xl h-10 bg-paper border border-line animate-pulse rounded-sm" />}>
+      <NewsSearchInputInner {...props} />
+    </React.Suspense>
   );
 }

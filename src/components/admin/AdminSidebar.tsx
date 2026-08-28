@@ -17,11 +17,9 @@ function getNavSections(role: string) {
   const contentItems = [
     { label: "News Records", href: "/admin/news", icon: "📰", badge: null },
     { label: "Articles Desk", href: "/admin/articles", icon: "📄", badge: null },
+    { label: "Magazines", href: "/admin/magazine", icon: "📚", badge: null },
+    { label: "Media Library", href: "/admin/media", icon: "🖼️", badge: null },
   ];
-  if (isSuperAdmin) {
-    contentItems.push({ label: "Magazine Wins", href: "/admin/magazine", icon: "🏆", badge: null });
-  }
-  contentItems.push({ label: "Media Library", href: "/admin/media", icon: "🖼️", badge: null });
 
   const adminItems = [
     { label: "User Access", href: "/admin/users", icon: "👥", badge: null },

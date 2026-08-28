@@ -24,7 +24,17 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
           localStorage.removeItem("siet_user_role");
         }
       }
-      const err = new Error(`${res.status} ${path}`);
+      const errText = await res.text().catch(() => "");
+      let errMsg = `API ${path} failed (${res.status})`;
+      try {
+        const jsonErr = JSON.parse(errText);
+        if (jsonErr?.detail) errMsg += `: ${jsonErr.detail}`;
+        else if (jsonErr?.message) errMsg += `: ${jsonErr.message}`;
+        else if (errText) errMsg += `: ${errText}`;
+      } catch {
+        if (errText) errMsg += `: ${errText}`;
+      }
+      const err = new Error(errMsg);
       err.stack = err.message;
       throw err;
     }
@@ -100,12 +110,12 @@ const normalizeNewsItem = (item: any): NewsItem => ({
   simpleExplanation: item.simple_explanation ?? item.simpleExplanation ?? item.contentSummary ?? item.aiSummary ?? "",
   detailedSections: Array.isArray(item.detailed_sections)
     ? item.detailed_sections.map((sec: any) => ({
-        heading: sec.heading ?? "Overview",
-        paragraphs: Array.isArray(sec.paragraphs) ? sec.paragraphs : [String(sec.paragraphs ?? "")],
-      }))
+      heading: sec.heading ?? "Overview",
+      paragraphs: Array.isArray(sec.paragraphs) ? sec.paragraphs : [String(sec.paragraphs ?? "")],
+    }))
     : Array.isArray(item.detailedSections)
-    ? item.detailedSections
-    : [
+      ? item.detailedSections
+      : [
         {
           heading: "Overview",
           paragraphs: [item.detailedSummary ?? item.content ?? ""],
@@ -117,7 +127,7 @@ const normalizeNewsItem = (item: any): NewsItem => ({
   keyPoints: Array.isArray(item.keyPoints)
     ? item.keyPoints
     : typeof item.keyPoints === "string"
-      ? (function() { try { return JSON.parse(item.keyPoints); } catch { return [item.keyPoints]; } })()
+      ? (function () { try { return JSON.parse(item.keyPoints); } catch { return [item.keyPoints]; } })()
       : Array.isArray(item.key_points) ? item.key_points : [],
   technicalDetails: item.technicalDetails ?? item.technical_details ?? "",
   whyItMatters: item.whyItMatters ?? item.why_it_matters ?? "",
@@ -128,25 +138,25 @@ const normalizeNewsItem = (item: any): NewsItem => ({
   coverageCount: Number(item.coverage_count ?? item.coverageCount ?? (Array.isArray(item.coverage) ? item.coverage.length : 1)),
   coverage: Array.isArray(item.coverage)
     ? item.coverage.map((c: any) => ({
-        id: String(c.id ?? ""),
-        sourceName: c.source_name ?? c.sourceName ?? "Outlet",
-        title: c.title ?? "",
-        url: c.url ?? c.source_url ?? "",
-        publishedAt: c.published_at ?? c.publishedAt ?? new Date().toISOString(),
-        isPrimary: Boolean(c.is_primary ?? c.isPrimary),
-      }))
+      id: String(c.id ?? ""),
+      sourceName: c.source_name ?? c.sourceName ?? "Outlet",
+      title: c.title ?? "",
+      url: c.url ?? c.source_url ?? "",
+      publishedAt: c.published_at ?? c.publishedAt ?? new Date().toISOString(),
+      isPrimary: Boolean(c.is_primary ?? c.isPrimary),
+    }))
     : [],
   sourceUrl: item.sourceUrl ?? "",
   sourceName: item.sourceName ?? "SIET News",
   domain: item.domain && typeof item.domain === "object" && item.domain.name
     ? normalizeDomain(item.domain)
     : {
-        slug: item.department || "ai-ml",
-        name: item.subcategory && item.subcategory !== "General"
-          ? item.subcategory
-          : (item.department ? item.department.toUpperCase().replace("-", " ") : "AI & ML"),
-        count: 0,
-      },
+      slug: item.department || "ai-ml",
+      name: item.subcategory && item.subcategory !== "General"
+        ? item.subcategory
+        : (item.department ? item.department.toUpperCase().replace("-", " ") : "AI & ML"),
+      count: 0,
+    },
   tags: Array.isArray(item.tags) ? item.tags : [],
   image: item.image ?? item.cover ?? item.imageUrl ?? "",
   publishedAt: item.publishedAt ?? item.published_at ?? item.created_at ?? new Date().toISOString(),
@@ -186,18 +196,18 @@ const normalizeMagazine = (item: any): MagazineIssue => ({
   issueDate: item.issueDate ?? item.publishedAt ?? item.created_at ?? new Date().toISOString(),
   pages: Array.isArray(item.pages)
     ? item.pages.map((p: any) => ({
-        id: String(p.id ?? ""),
-        pageNumber: Number(p.pageNumber ?? p.page_number ?? 1),
-        imageUrl: p.imageUrl ?? p.image_url ?? "",
-        extractedText: p.extractedText ?? p.extracted_text ?? "",
-      }))
+      id: String(p.id ?? ""),
+      pageNumber: Number(p.pageNumber ?? p.page_number ?? 1),
+      imageUrl: p.imageUrl ?? p.image_url ?? "",
+      extractedText: p.extractedText ?? p.extracted_text ?? "",
+    }))
     : [],
   tocEntries: Array.isArray(item.tocEntries)
     ? item.tocEntries.map((t: any) => ({
-        id: String(t.id ?? ""),
-        pageNumber: Number(t.pageNumber ?? t.page_number ?? 1),
-        heading: t.heading ?? "",
-      }))
+      id: String(t.id ?? ""),
+      pageNumber: Number(t.pageNumber ?? t.page_number ?? 1),
+      heading: t.heading ?? "",
+    }))
     : [],
   gallery: Array.isArray(item.gallery) ? item.gallery : [],
   projectLinks: Array.isArray(item.projectLinks) ? item.projectLinks : [],
@@ -389,8 +399,17 @@ export const api = {
   },
 
   adminListMagazines: async () => {
-    const data = await req<any[]>("/admin/magazine");
-    return (data || []).map(normalizeMagazine);
+    const data = await req<any>("/admin/magazine");
+    const list = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data?.magazines)
+          ? data.magazines
+          : Array.isArray(data?.items)
+            ? data.items
+            : [];
+    return list.map(normalizeMagazine);
   },
 
   adminUploadMagazine: async (formData: FormData) => {
@@ -421,6 +440,119 @@ export const api = {
     return res.json();
   },
 
+  adminCreateEventMagazine: async (formData: FormData) => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+    const res = await fetch(`${API_BASE}/admin/magazine/create`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Creation failed" }));
+      throw new Error(err.detail || "Failed to create event magazine");
+    }
+    return res.json();
+  },
+
+  adminUploadMagazineCover: async (id: string, formData: FormData) => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+    const res = await fetch(`${API_BASE}/admin/magazine/${id}/cover`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Cover upload failed" }));
+      throw new Error(err.detail || "Failed to upload cover pages");
+    }
+    return res.json();
+  },
+
+  adminUploadMagazineBody: async (id: string, formData: FormData) => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+    const res = await fetch(`${API_BASE}/admin/magazine/${id}/body`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Body upload failed" }));
+      throw new Error(err.detail || "Failed to upload body pages");
+    }
+    return res.json();
+  },
+
+  adminUploadMagazineGallery: async (id: string, formData: FormData) => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+    const res = await fetch(`${API_BASE}/admin/magazine/${id}/gallery`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "Gallery upload failed" }));
+      throw new Error(err.detail || "Failed to upload gallery photos");
+    }
+    return res.json();
+  },
+
+  adminPublishMagazine: async (id: string) => {
+    return req<{ message: string; id: string }>(`/admin/magazine/${id}/publish`, { method: "POST" });
+  },
+
+  adminUnpublishMagazine: async (id: string) => {
+    return req<{ message: string; id: string }>(`/admin/magazine/${id}/unpublish`, { method: "POST" });
+  },
+
+  // One-Click AI Auto-Fill for Event Magazine
+  adminAutoGenerateFullMagazine: async (b: {
+    event_name: string;
+    event_date?: string;
+    raw_notes: string;
+    photo_count?: number;
+  }) => {
+    const res = await req<any>("/admin/magazine/ai/auto-generate", {
+      method: "POST",
+      body: JSON.stringify(b),
+    });
+    return (res?.data || res) as {
+      magazine_issue_title: string;
+      description: string;
+      writeup_headline: string;
+      writeup_html: string;
+      writeup_text: string;
+      captions: string[];
+      toc_summary: string;
+    };
+  },
+
+  adminAutoGenerateFromFile: async (formData: FormData) => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+    const res = await fetch(`${API_BASE}/admin/magazine/ai/auto-generate-from-file`, {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: "File auto-generation failed" }));
+      throw new Error(err.detail || err.message || "Failed to process file with AI");
+    }
+    const json = await res.json();
+    return (json?.data || json) as {
+      magazine_issue_title: string;
+      description: string;
+      writeup_headline: string;
+      writeup_html: string;
+      writeup_text: string;
+      captions: string[];
+      toc_summary: string;
+      detected_event_name: string;
+      detected_event_date: string;
+      extracted_notes: string;
+      extracted_images: { id: string; url: string; file_name: string }[];
+    };
+  },
+
   adminDeleteMagazine: async (id: string) => {
     return req<{ message: string }>(`/admin/magazine/${id}`, { method: "DELETE" });
   },
@@ -446,11 +578,11 @@ export const api = {
     };
     const recentActivity = Array.isArray(data?.recentActivity)
       ? data.recentActivity.map((act: any) => ({
-          id: String(act.id ?? ""),
-          action: act.action ?? act.type ?? "Update",
-          timestamp: act.timestamp ?? act.created_at ?? new Date().toISOString(),
-          details: act.details ?? act.title ?? "",
-        }))
+        id: String(act.id ?? ""),
+        action: act.action ?? act.type ?? "Update",
+        timestamp: act.timestamp ?? act.created_at ?? new Date().toISOString(),
+        details: act.details ?? act.title ?? "",
+      }))
       : [];
     return { counts, todayAccuracy, recentActivity };
   },

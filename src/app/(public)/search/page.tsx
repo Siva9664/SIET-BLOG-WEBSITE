@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useState, useEffect, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { Breadcrumb, ContentCard, EmptyState, TagChip, LoadingSkeleton, ErrorState } from "@/components/shared";
 import type { NewsItem, Article, Achievement, Domain } from "@/lib/types";
@@ -16,10 +16,8 @@ const SUGGESTIONS = [
   "Ethics",
 ];
 
-function SearchContent() {
-  const searchParams = useSearchParams();
+function SearchContent({ query }: { query: string }) {
   const router = useRouter();
-  const query = searchParams.get("q") || "";
 
   const [inputVal, setInputVal] = useState(query);
   const [loading, setLoading] = useState(false);
@@ -282,6 +280,19 @@ function SearchContent() {
   );
 }
 
+function SearchContentInner() {
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      setQuery(params.get("q") || "");
+    }
+  }, []);
+
+  return <SearchContent query={query} />;
+}
+
 export default function SearchPage() {
   return (
     <Suspense
@@ -291,7 +302,7 @@ export default function SearchPage() {
         </div>
       }
     >
-      <SearchContent />
+      <SearchContentInner />
     </Suspense>
   );
 }
