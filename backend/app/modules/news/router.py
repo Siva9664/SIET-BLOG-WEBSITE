@@ -60,8 +60,8 @@ async def _news_page(
 ):
     page = normalize_page(page)
     limit = normalize_limit(limit)
-    query = select(News).where(News.status == ContentStatus.PUBLISHED)
-    count_query = select(func.count()).select_from(News).where(News.status == ContentStatus.PUBLISHED)
+    query = select(News).where(News.status == ContentStatus.PUBLISHED, News.duplicate_of_id.is_(None))
+    count_query = select(func.count()).select_from(News).where(News.status == ContentStatus.PUBLISHED, News.duplicate_of_id.is_(None))
 
     if archived_only:
         query = query.where(News.is_archived == True)
@@ -162,7 +162,7 @@ async def list_news(
     domain: str | None = Query(None),
     q: str | None = Query(None),
     tab: str | None = Query(None),
-    date_filter: str | None = Query("today"),
+    date_filter: str | None = Query(None),
     include_archived: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
@@ -201,7 +201,7 @@ async def latest_news(
     domain: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    payload = await _news_page(db, request, 1, limit, department=department, domain=domain, tab="latest", date_filter="today")
+    payload = await _news_page(db, request, 1, limit, department=department, domain=domain, tab="latest", date_filter=None)
     return payload["items"]
 
 
@@ -213,7 +213,7 @@ async def trending_news(
     domain: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    payload = await _news_page(db, request, 1, limit, department=department, domain=domain, tab="trending", date_filter="today")
+    payload = await _news_page(db, request, 1, limit, department=department, domain=domain, tab="trending", date_filter=None)
     return payload["items"]
 
 

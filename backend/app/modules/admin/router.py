@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -366,6 +366,34 @@ async def admin_delete_article(
     service = ArticleService(ArticleRepository(db))
     await service.delete_article(article_id)
     return None
+
+# MAGAZINE TEMPLATE CRUD
+@router.get("/magazine/template")
+async def admin_get_magazine_template(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    from app.modules.magazine.router import api_get_magazine_template
+    return await api_get_magazine_template(db=db, current_user=current_user)
+
+@router.put("/magazine/template")
+async def admin_update_magazine_template(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    from app.modules.magazine.router import api_update_magazine_template, TemplateUpdateSchema
+    update_schema = TemplateUpdateSchema(**payload)
+    return await api_update_magazine_template(payload=update_schema, db=db, current_user=current_user)
+
+@router.post("/magazine/template/upload")
+async def admin_upload_magazine_template(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    from app.modules.magazine.router import api_upload_magazine_template
+    return await api_upload_magazine_template(file=file, db=db, current_user=current_user)
 
 # MAGAZINE CRUD
 from app.modules.magazine.repository import MagazineRepository

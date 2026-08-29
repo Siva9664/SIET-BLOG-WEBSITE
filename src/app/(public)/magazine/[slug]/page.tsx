@@ -1,5 +1,4 @@
 import * as React from "react";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { api } from "@/lib/api";
 import { Breadcrumb, LikeButton, BookmarkButton, ShareButton } from "@/components/shared";
@@ -56,16 +55,27 @@ export default async function MagazineDetailPage(props: { params: Params }) {
             )}
           </div>
 
-          {issue.pdfUrl && (
+          <div className="flex items-center gap-3">
             <a
-              href={issue.pdfUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-util text-eyebrow uppercase tracking-wider text-ink hover:text-accent border border-line px-3 py-1 bg-paper hover:bg-paper-3 transition-colors"
+              href={api.magDownloadUrl(issue.slug)}
+              download={`${issue.slug}.pdf`}
+              className="font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent border border-ink px-3 py-1 transition-colors flex items-center gap-1 cursor-pointer"
             >
-              Original PDF Direct ↗
+              <span>Download Full Issue</span>
+              <span>↓</span>
             </a>
-          )}
+
+            {issue.pdfUrl && (
+              <a
+                href={issue.pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-util text-eyebrow uppercase tracking-wider text-ink hover:text-accent border border-line px-3 py-1 bg-paper hover:bg-paper-3 transition-colors"
+              >
+                Original PDF ↗
+              </a>
+            )}
+          </div>
         </div>
 
         <h1 className="font-display text-h1 font-semibold leading-tight text-ink">
@@ -93,3 +103,4 @@ export default async function MagazineDetailPage(props: { params: Params }) {
     </main>
   );
 }
+

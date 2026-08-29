@@ -11,15 +11,54 @@ import json
 import httpx
 from typing import List, Dict, Any, Optional
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import async_session_maker
 from app.core.logging import logger
+from app.modules.magazine.models import MagazineTemplate, DEFAULT_SECTION_SCHEMA, DEFAULT_STYLE_RULES
 from app.modules.magazine.style_guide import (
-    SIET_MAGAZINE_STYLE_GUIDE,
     FEW_SHOT_EXAMPLES,
     get_best_matching_few_shot,
 )
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or ""
+
+
+async def get_active_template(db: AsyncSession | None = None) -> dict:
+    """
+    Fetches the currently active MagazineTemplate from the database.
+    Fallback to defaults if unavailable.
+    """
+    try:
+        if db:
+            stmt = select(MagazineTemplate).where(MagazineTemplate.is_active == True)
+            tmpl = (await db.execute(stmt)).scalars().first()
+            if tmpl:
+                return {
+                    "name": tmpl.name,
+                    "section_schema": tmpl.section_schema or DEFAULT_SECTION_SCHEMA,
+                    "style_rules": tmpl.style_rules or DEFAULT_STYLE_RULES,
+                }
+        else:
+            async with async_session_maker() as session:
+                stmt = select(MagazineTemplate).where(MagazineTemplate.is_active == True)
+                tmpl = (await session.execute(stmt)).scalars().first()
+                if tmpl:
+                    return {
+                        "name": tmpl.name,
+                        "section_schema": tmpl.section_schema or DEFAULT_SECTION_SCHEMA,
+                        "style_rules": tmpl.style_rules or DEFAULT_STYLE_RULES,
+                    }
+    except Exception as e:
+        logger.warning(f"Could not load active MagazineTemplate from DB: {e}. Using defaults.")
+
+    return {
+        "name": "SIET Standard Issue Template",
+        "section_schema": DEFAULT_SECTION_SCHEMA,
+        "style_rules": DEFAULT_STYLE_RULES,
+    }
 
 
 async def _call_llm(prompt: str) -> str:
@@ -71,38 +110,38 @@ async def generate_full_magazine_content(
     event_name: str,
     event_date: str,
     raw_notes: str,
-    photo_count: int = 0
+    photo_count: int = 0,
+    db: AsyncSession | None = None,
 ) -> Dict[str, Any]:
     """
     One-click AI call to generate Title, Description, Writeup, Captions, and TOC Summary
-    guided strictly by the SIET Style Guide and auto-selected Few-Shot past article examples.
+    guided dynamically by the ACTIVE MagazineTemplate loaded from the database.
     """
-    matched_example = get_best_matching_few_shot(raw_notes=raw_notes, event_name=event_name)
+    active_template = await get_active_template(db)
+    enabled_sections = [s for s in active_template.get("section_schema", []) if s.get("enabled", True)]
 
-    example_json_repr = json.dumps({
-        "magazine_issue_title": matched_example["output_title"],
-        "description": matched_example["output_description"],
-        "writeup": matched_example["output_writeup"],
-        "captions": matched_example["captions"],
-        "toc_summary": matched_example["toc_summary"],
-    }, indent=2)
+    section_schema_str = json.dumps(enabled_sections, indent=2)
+    style_rules_str = json.dumps(active_template.get("style_rules", {}), indent=2)
+
+    matched_example = get_best_matching_few_shot(raw_notes=raw_notes, event_name=event_name)
 
     prompt = f"""You are the official content writer for the SIET Engineering Magazine (Sri Shakthi Institute of Engineering & Technology).
 
-STYLE GUIDE (follow strictly):
-{SIET_MAGAZINE_STYLE_GUIDE}
+ACTIVE MAGAZINE TEMPLATE ({active_template.get('name', 'Default')}):
+ORDERED SECTION SCHEMA TO GENERATE:
+{section_schema_str}
 
-EXAMPLE OF A PREVIOUS MAGAZINE ARTICLE WRITTEN IN THE EXACT SIET HOUSE STYLE:
-Raw notes provided:
+STYLE & DESIGN CONSTRAINTS:
+{style_rules_str}
+
+EXEMPLAR PAST ARTICLE WRITTEN IN THIS HOUSE STYLE:
+Raw notes:
 {matched_example["raw_notes"]}
-
-Output JSON generated:
-```json
-{example_json_repr}
-```
+Output Title: {matched_example["output_title"]}
+Output Description: {matched_example["output_description"]}
 
 ---
-Now generate magazine content for the NEW event below, strictly following the exact same style, tone, structure, and formatting standards as shown in the style guide and exemplar above.
+Generate magazine issue content for the NEW event below, strictly following the active template sections and style constraints above.
 
 Target Event Details:
 - Event name: {event_name or 'SIET Engineering Event'}
@@ -114,8 +153,8 @@ Target Event Details:
 Return the output ONLY as valid JSON in this exact structure:
 {{
   "magazine_issue_title": "short catchy title for this issue",
-  "description": "3-4 sentence polished event overview following the style guide",
-  "writeup": "400-600 word magazine article with a main headline and 2-3 subheadings",
+  "description": "3-4 sentence polished event overview following the active section rules",
+  "writeup": "400-600 word magazine article formatted with main headline and subheadings matching the active section schema",
   "captions": ["one short caption per photo, max 12 words each, factual and non-flowery"],
   "toc_summary": "one line, max 15 words, summarizing the issue for table of contents"
 }}

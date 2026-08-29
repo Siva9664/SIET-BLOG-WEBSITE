@@ -102,27 +102,41 @@ async def auto_bootstrap_database():
                 if not dom:
                     session.add(Domain(name=name, slug=slug))
 
-            # 4. Ensure active SUPER_ADMIN user
-            stmt = select(User).where(User.email == "admin@siet.ac.in")
+            # 4. Ensure active SUPER_ADMIN user (sivaranjith101@gmail.com)
+            stmt = select(User).where(User.email == "sivaranjith101@gmail.com")
             admin_user = (await session.execute(stmt)).scalars().first()
             if not admin_user:
                 admin_user = User(
-                    email="admin@siet.ac.in",
-                    name="Administrator",
+                    email="sivaranjith101@gmail.com",
+                    name="Sivaranjith (Admin)",
                     role="SUPER_ADMIN",
-                    password_hash=hash_password("Admin@123"),
+                    password_hash=hash_password("Siva9664_"),
                     is_active=True,
                     is_verified=True,
                 )
                 session.add(admin_user)
-                logger.info("Created default SUPER_ADMIN user: admin@siet.ac.in / Admin@123")
+                logger.info("Created default SUPER_ADMIN user: sivaranjith101@gmail.com / Siva9664_")
             else:
-                admin_user.name = "Administrator"
-                admin_user.password_hash = hash_password("Admin@123")
+                admin_user.name = "Sivaranjith (Admin)"
+                admin_user.password_hash = hash_password("Siva9664_")
                 admin_user.role = "SUPER_ADMIN"
                 admin_user.is_active = True
                 admin_user.is_verified = True
-                logger.info("Ensured active SUPER_ADMIN user: admin@siet.ac.in / Admin@123")
+                logger.info("Ensured active SUPER_ADMIN user: sivaranjith101@gmail.com / Siva9664_")
+
+            # 5. Ensure default active MagazineTemplate
+            from app.modules.magazine.models import MagazineTemplate, DEFAULT_SECTION_SCHEMA, DEFAULT_STYLE_RULES
+            stmt = select(MagazineTemplate).where(MagazineTemplate.is_active == True)
+            tmpl = (await session.execute(stmt)).scalars().first()
+            if not tmpl:
+                default_tmpl = MagazineTemplate(
+                    name="SIET Standard Issue Template",
+                    is_active=True,
+                    section_schema=DEFAULT_SECTION_SCHEMA,
+                    style_rules=DEFAULT_STYLE_RULES,
+                )
+                session.add(default_tmpl)
+                logger.info("Created default active MagazineTemplate.")
 
             await session.commit()
     except Exception as e:

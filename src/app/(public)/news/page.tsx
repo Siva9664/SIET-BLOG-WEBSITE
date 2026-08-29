@@ -19,18 +19,10 @@ export default async function NewsPage({
   const subcategory = params.subcategory || "";
   const searchQuery = params.q || "";
 
-  let todayItems: NewsItem[] = [];
-  let todayTotal = 0;
-
-  let pastItems: NewsItem[] = [];
-  let pastCurrentPage = pageNum;
-  let pastTotalPages = 1;
-  let pastTotalItems = 0;
-
-  let searchItems: NewsItem[] = [];
-  let searchCurrentPage = pageNum;
-  let searchTotalPages = 1;
-  let searchTotalItems = 0;
+  let newsItems: NewsItem[] = [];
+  let currentPage = pageNum;
+  let totalPages = 1;
+  let totalItems = 0;
 
   let isFallback = false;
   let deptCounts: Record<string, number> = {};
@@ -49,46 +41,20 @@ export default async function NewsPage({
     console.warn("News taxonomy fetch error:", err);
   }
 
-  // 2. Fetch Data (Search Mode vs Stacked Today+Past Mode)
+  // 2. Fetch Single Unified News Feed Data
   try {
-    if (searchQuery) {
-      const p = new URLSearchParams();
-      p.set("q", searchQuery);
-      p.set("page", String(pageNum));
-      if (department) p.set("department", department);
-      if (subcategory) p.set("subcategory", subcategory);
+    const p = new URLSearchParams();
+    p.set("page", String(pageNum));
+    p.set("limit", "20");
+    if (department) p.set("department", department);
+    if (subcategory) p.set("subcategory", subcategory);
+    if (searchQuery) p.set("q", searchQuery);
 
-      const res = await api.news(`?${p.toString()}`);
-      searchItems = res.items || [];
-      searchCurrentPage = res.page || 1;
-      searchTotalPages = res.pages || 1;
-      searchTotalItems = res.total || 0;
-    } else {
-      // Today's News
-      const todayP = new URLSearchParams();
-      todayP.set("date_filter", "today");
-      todayP.set("limit", "20");
-      if (department) todayP.set("department", department);
-      if (subcategory) todayP.set("subcategory", subcategory);
-
-      const todayRes = await api.news(`?${todayP.toString()}`);
-      todayItems = todayRes.items || [];
-      todayTotal = todayRes.total || todayItems.length;
-
-      // Past News (1-90 Days)
-      const pastP = new URLSearchParams();
-      pastP.set("date_filter", "past");
-      pastP.set("page", String(pageNum));
-      pastP.set("limit", "20");
-      if (department) pastP.set("department", department);
-      if (subcategory) pastP.set("subcategory", subcategory);
-
-      const pastRes = await api.news(`?${pastP.toString()}`);
-      pastItems = pastRes.items || [];
-      pastCurrentPage = pastRes.page || 1;
-      pastTotalPages = pastRes.pages || 1;
-      pastTotalItems = pastRes.total || 0;
-    }
+    const res = await api.news(`?${p.toString()}`);
+    newsItems = res.items || [];
+    currentPage = res.page || 1;
+    totalPages = res.pages || 1;
+    totalItems = res.total || 0;
   } catch (error) {
     console.error("News API request failed:", error);
     isFallback = true;
@@ -137,7 +103,7 @@ export default async function NewsPage({
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
               <h1 className="font-display text-h1 font-semibold leading-tight text-ink">
-                SIET News Desk
+                SIET News
               </h1>
               <p className="font-util text-xs text-ink-soft mt-1">
                 Real-time engineering bulletins, research papers, and technology updates (0–90 days)
@@ -170,140 +136,68 @@ export default async function NewsPage({
         </div>
       </div>
 
-      {/* MODE 1: SEARCH RESULTS ACTIVE */}
-      {searchQuery ? (
-        <section className="space-y-6 reveal">
-          <div className="flex items-center justify-between border-b border-line pb-3">
-            <div>
-              <p className="font-util text-eyebrow text-accent uppercase tracking-wider">
-                Search Query Active
-              </p>
-              <h2 className="font-display text-h3 font-semibold text-ink">
-                Results for &ldquo;{searchQuery}&rdquo; ({searchTotalItems} found)
-              </h2>
-            </div>
-            <Link
-              href={getDepartmentFilterHref(department)}
-              className="font-util text-eyebrow text-ink-soft hover:text-ink uppercase tracking-wider underline"
-            >
-              Clear Search [×]
-            </Link>
+      {/* UNIFIED NEWS FEED SECTION */}
+      <section className="space-y-6 reveal">
+        <div className="flex items-center justify-between border-b border-line pb-3">
+          <div>
+            <p className="font-util text-eyebrow text-accent uppercase tracking-wider">
+              {searchQuery ? "Search Query Active" : "Unified Engineering Feed"}
+            </p>
+            <h2 className="font-display text-h2 font-semibold text-ink">
+              {searchQuery
+                ? `Results for “${searchQuery}” (${totalItems} found)`
+                : `News (${totalItems} Articles)`}
+            </h2>
           </div>
-
-          {searchItems.length > 0 ? (
-            <>
-              <div className="card-grid">
-                {searchItems.map((item) => (
-                  <ContentCard key={item.id} variant="news" item={item} />
-                ))}
-              </div>
-
-              {searchTotalPages > 1 && (
-                <div className="flex justify-center pt-8 border-t border-line">
-                  <Pagination
-                    page={searchCurrentPage}
-                    pages={searchTotalPages}
-                    basePath={getPaginationHref(searchCurrentPage).replace(/page=\d+/, "")}
-                  />
-                </div>
-              )}
-            </>
-          ) : (
-            <EmptyState
-              message={`No active news articles matched your search query "${searchQuery}".`}
-              actionHref={getDepartmentFilterHref(department)}
-              actionLabel="Clear Search Filter"
-            />
-          )}
-        </section>
-      ) : (
-        /* MODE 2: STACKED DEFAULT VIEW (TODAY'S NEWS + PAST NEWS) */
-        <div className="space-y-12">
-          {/* SECTION 1: TODAY'S NEWS */}
-          <section className="space-y-6 reveal">
-            <div className="flex items-center justify-between border-b border-line pb-3">
-              <div>
-                <p className="font-util text-eyebrow text-accent uppercase tracking-wider">
-                  Today&apos;s Edition · {todayTotal} Verified Articles
-                </p>
-                <h2 className="font-display text-h2 font-semibold text-ink">
-                  Today&apos;s News
-                </h2>
-              </div>
-              {department && (
-                <span className="font-util text-eyebrow text-ink-soft">
-                  Filtered: <strong className="text-accent">{department.toUpperCase()}</strong>
-                </span>
-              )}
-            </div>
-
-            {todayItems.length > 0 ? (
-              <div className="card-grid">
-                {todayItems.map((item) => (
-                  <ContentCard key={item.id} variant="news" item={item} />
-                ))}
-              </div>
-            ) : (
-              <div className="p-8 border border-dashed border-line bg-paper text-center space-y-2">
-                <p className="font-display text-sm font-medium text-ink">
-                  No new articles published today yet for {department ? `department '${department}'` : "this edition"}.
-                </p>
-                <p className="font-body text-xs text-ink-soft">
-                  Check out the Past News section below for recent releases from the 90-day rolling index.
-                </p>
-              </div>
+          <div className="flex items-center gap-3">
+            {department && (
+              <span className="font-util text-eyebrow text-ink-soft">
+                Filtered: <strong className="text-accent">{department.toUpperCase()}</strong>
+              </span>
             )}
-          </section>
-
-          {/* SECTION 2: PAST NEWS (1-90 DAYS BACK) */}
-          <section className="space-y-6 reveal pt-4 border-t-2 border-line">
-            <div className="flex items-center justify-between border-b border-line pb-3">
-              <div>
-                <p className="font-util text-eyebrow text-ink-soft uppercase tracking-wider">
-                  Historical Coverage · 90-Day Rolling Index
-                </p>
-                <h2 className="font-display text-h2 font-semibold text-ink">
-                  Past News ({pastTotalItems} Articles)
-                </h2>
-              </div>
-              <p className="font-util text-eyebrow text-ink-soft">
-                Showing Days 1–90
-              </p>
-            </div>
-
-            {pastItems.length > 0 ? (
-              <>
-                <div className="card-grid">
-                  {pastItems.map((item) => (
-                    <ContentCard key={item.id} variant="news" item={item} />
-                  ))}
-                </div>
-
-                {/* Pagination Controls for Past News */}
-                {pastTotalPages > 1 && (
-                  <div className="flex justify-center pt-8 border-t border-line">
-                    <Pagination
-                      page={pastCurrentPage}
-                      pages={pastTotalPages}
-                      basePath={getPaginationHref(pastCurrentPage).replace(/page=\d+/, "")}
-                    />
-                  </div>
-                )}
-              </>
-            ) : (
-              <EmptyState
-                message={
-                  department
-                    ? `No past news articles cataloged for department '${department}'.`
-                    : "No past news articles available in the 90-day index."
-                }
-                actionHref="/news"
-                actionLabel="View All News"
-              />
+            {searchQuery && (
+              <Link
+                href={getDepartmentFilterHref(department)}
+                className="font-util text-eyebrow text-ink-soft hover:text-ink uppercase tracking-wider underline"
+              >
+                Clear Search [×]
+              </Link>
             )}
-          </section>
+          </div>
         </div>
-      )}
+
+        {newsItems.length > 0 ? (
+          <>
+            <div className="card-grid">
+              {newsItems.map((item) => (
+                <ContentCard key={item.id} variant="news" item={item} />
+              ))}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex justify-center pt-8 border-t border-line">
+                <Pagination
+                  page={currentPage}
+                  pages={totalPages}
+                  basePath={getPaginationHref(currentPage).replace(/page=\d+/, "")}
+                />
+              </div>
+            )}
+          </>
+        ) : (
+          <EmptyState
+            message={
+              searchQuery
+                ? `No active news articles matched your search query "${searchQuery}".`
+                : department
+                ? `No active news articles cataloged for department '${department}'.`
+                : "No active news articles available in the 90-day index."
+            }
+            actionHref={getDepartmentFilterHref("")}
+            actionLabel="View All News"
+          />
+        )}
+      </section>
     </main>
   );
 }

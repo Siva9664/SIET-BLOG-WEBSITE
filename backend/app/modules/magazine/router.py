@@ -29,6 +29,7 @@ from fastapi import (
     APIRouter, BackgroundTasks, Depends, File, Form,
     HTTPException, Query, Request, UploadFile, status,
 )
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -36,7 +37,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.shared.responses.helpers import success
 from app.modules.contract_helpers import (
-    get_media_map, normalize_limit, normalize_page,
+    get_media_map, get_top_ai_news, normalize_limit, normalize_page,
     paginated_payload, search_filter, serialize_magazine,
 )
 from app.modules.engagement.router import (
@@ -44,8 +45,11 @@ from app.modules.engagement.router import (
     like_contract, like_status_contract,
     unbookmark_contract, unlike_contract,
 )
-from app.modules.magazine.models import Magazine, MagazinePage, MagazineTOCEntry
-from app.modules.magazine.pipeline import process_magazine_pdf
+from app.modules.magazine.models import (
+    Magazine, MagazinePage, MagazineTOCEntry,
+    MagazineTemplate, DEFAULT_SECTION_SCHEMA, DEFAULT_STYLE_RULES,
+)
+from app.modules.magazine.pipeline import compile_magazine_pdf, process_magazine_pdf
 from app.modules.magazine.ai_service import (
     generate_full_magazine_content,
     generate_event_overview,
@@ -53,7 +57,7 @@ from app.modules.magazine.ai_service import (
     generate_gallery_captions,
     generate_toc_entry,
 )
-from app.modules.magazine.file_parser import parse_event_file
+from app.modules.magazine.file_parser import parse_event_file, parse_template_file
 from app.shared.auth.dependencies import require_admin, require_super_admin
 from app.shared.exceptions.custom import NotFoundException
 from app.shared.types.content import ContentKind, MagazineType
@@ -239,6 +243,32 @@ async def magazine_by_year(
     return await _pub_query(db, request, page, limit, year=year)
 
 
+@router.get("/{slug}/download")
+async def download_magazine_issue(slug: str, db: AsyncSession = Depends(get_db)):
+    query = (
+        select(Magazine)
+        .options(
+            selectinload(Magazine.pages),
+            selectinload(Magazine.toc_entries),
+        )
+        .where(Magazine.slug == slug)
+    )
+    mag = (await db.execute(query)).scalars().first()
+    if not mag:
+        raise NotFoundException("Magazine issue not found.")
+
+    top_ai_news = await get_top_ai_news(db, limit=5)
+    pdf_path = compile_magazine_pdf(mag, mag.pages, top_ai_news)
+
+    filename = f"{mag.slug}.pdf"
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        filename=filename,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
 @router.get("/{slug_or_id}")
 async def get_magazine_by_slug_or_id(slug_or_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     query = select(Magazine).options(
@@ -346,6 +376,114 @@ async def create_event_magazine(
     await db.commit()
     await db.refresh(mag)
     return {"message": "Event magazine created.", "id": str(mag.id), "slug": mag.slug, "status": mag.status}
+
+
+class TemplateUpdateSchema(BaseModel):
+    name: str | None = None
+    section_schema: list[dict]
+    style_rules: dict
+
+
+@admin_router.get("/template")
+async def api_get_magazine_template(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    stmt = select(MagazineTemplate).where(MagazineTemplate.is_active == True)
+    tmpl = (await db.execute(stmt)).scalars().first()
+    if not tmpl:
+        tmpl = MagazineTemplate(
+            name="SIET Standard Issue Template",
+            is_active=True,
+            section_schema=DEFAULT_SECTION_SCHEMA,
+            style_rules=DEFAULT_STYLE_RULES,
+        )
+        db.add(tmpl)
+        await db.commit()
+        await db.refresh(tmpl)
+
+    return success({
+        "id": tmpl.id,
+        "name": tmpl.name,
+        "is_active": tmpl.is_active,
+        "section_schema": tmpl.section_schema,
+        "style_rules": tmpl.style_rules,
+        "updated_at": tmpl.updated_at.isoformat() if tmpl.updated_at else None,
+    })
+
+
+@admin_router.put("/template")
+async def api_update_magazine_template(
+    payload: TemplateUpdateSchema,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    stmt = select(MagazineTemplate).where(MagazineTemplate.is_active == True)
+    tmpl = (await db.execute(stmt)).scalars().first()
+    if not tmpl:
+        tmpl = MagazineTemplate(
+            name=payload.name or "SIET Standard Issue Template",
+            is_active=True,
+            section_schema=payload.section_schema,
+            style_rules=payload.style_rules,
+        )
+        db.add(tmpl)
+    else:
+        if payload.name:
+            tmpl.name = payload.name
+        tmpl.section_schema = payload.section_schema
+        tmpl.style_rules = payload.style_rules
+        tmpl.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(tmpl)
+
+    return success({
+        "id": tmpl.id,
+        "name": tmpl.name,
+        "is_active": tmpl.is_active,
+        "section_schema": tmpl.section_schema,
+        "style_rules": tmpl.style_rules,
+        "updated_at": tmpl.updated_at.isoformat() if tmpl.updated_at else None,
+    })
+
+
+@admin_router.post("/template/upload")
+async def api_upload_magazine_template(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    contents = await file.read()
+    parsed = parse_template_file(contents, file.filename)
+
+    stmt = select(MagazineTemplate).where(MagazineTemplate.is_active == True)
+    tmpl = (await db.execute(stmt)).scalars().first()
+    if not tmpl:
+        tmpl = MagazineTemplate(
+            name=parsed["name"],
+            is_active=True,
+            section_schema=parsed["section_schema"],
+            style_rules=parsed["style_rules"],
+        )
+        db.add(tmpl)
+    else:
+        tmpl.name = parsed["name"]
+        tmpl.section_schema = parsed["section_schema"]
+        tmpl.style_rules = parsed["style_rules"]
+        tmpl.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(tmpl)
+
+    return success({
+        "id": tmpl.id,
+        "name": tmpl.name,
+        "is_active": tmpl.is_active,
+        "section_schema": tmpl.section_schema,
+        "style_rules": tmpl.style_rules,
+        "updated_at": tmpl.updated_at.isoformat() if tmpl.updated_at else None,
+    })
 
 
 @admin_router.post("/{magazine_id}/cover")
@@ -739,5 +877,6 @@ async def api_generate_toc(
         description=payload.description,
     )
     return success({"toc_summary": toc_summary})
+
 
 

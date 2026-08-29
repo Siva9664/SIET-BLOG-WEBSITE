@@ -5,19 +5,38 @@ from datetime import UTC, datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from app.core.database import async_session_maker
 from app.modules.news.models import News, StoryCoverage
-from app.modules.news.pipeline import calculate_story_similarity, generate_cluster_ai_enrichment
+from app.modules.news.pipeline import calculate_story_similarity, generate_dynamic_ai_explanation
 
 async def backfill_story_clustering():
     async with async_session_maker() as session:
-        print("Starting backfill for multi-source story clustering...")
+        print("Starting cleanup and backfill for multi-source story clustering...")
+        
+        # 1. Clean up duplicate StoryCoverage entries in DB
+        cov_res = await session.execute(select(StoryCoverage).order_by(StoryCoverage.id.asc()))
+        all_covs = list(cov_res.scalars().all())
+        
+        seen_cov_keys = set()
+        deleted_cov_count = 0
+        for cov in all_covs:
+            cov_key = (cov.news_id, (cov.source_name or "").strip().lower(), (cov.source_url or "").strip().lower())
+            if cov_key in seen_cov_keys:
+                await session.delete(cov)
+                deleted_cov_count += 1
+            else:
+                seen_cov_keys.add(cov_key)
+        
+        await session.commit()
+        print(f"Cleaned up {deleted_cov_count} duplicate StoryCoverage rows.")
+
+        # 2. Perform fresh clustering sweep across active non-duplicate News records
         result = await session.execute(
-            select(News).order_by(News.published_at.desc())
+            select(News).where(News.duplicate_of_id.is_(None)).order_by(News.published_at.desc())
         )
         all_news = list(result.scalars().all())
-        print(f"Loaded {len(all_news)} articles to inspect for clustering.")
+        print(f"Loaded {len(all_news)} active articles to inspect for clustering.")
 
         processed_ids = set()
         clustered_count = 0
@@ -36,7 +55,7 @@ async def backfill_story_clustering():
                     continue
 
                 sim_score = calculate_story_similarity(news_a.title, news_a.content, news_b.title, news_b.content)
-                if sim_score >= 0.35:
+                if sim_score >= 0.25:
                     cluster.append(news_b)
                     processed_ids.add(news_b.id)
 
@@ -45,6 +64,7 @@ async def backfill_story_clustering():
                 select(StoryCoverage).where(StoryCoverage.news_id == news_a.id)
             )
             existing_covs = list(cov_result.scalars().all())
+            existing_sources = {(c.source_name or "").strip().lower() for c in existing_covs}
 
             if not existing_covs:
                 primary_cov = StoryCoverage(
@@ -57,23 +77,28 @@ async def backfill_story_clustering():
                 )
                 session.add(primary_cov)
                 existing_covs.append(primary_cov)
+                existing_sources.add((news_a.source_name or "").strip().lower())
 
             if len(cluster) > 1:
                 clustered_count += 1
-                print(f"Cluster found: '{news_a.title[:50]}' reported by {len(cluster)} sources ({', '.join([c.source_name for c in cluster])})")
+                print(f"Cluster found: '{news_a.title[:50]}' reported by {len(cluster)} sources ({', '.join([c.source_name or 'Source' for c in cluster])})")
 
-                # Add secondary coverage entries to primary news_a
+                # Add secondary coverage entries to primary news_a & mark secondary news_b as duplicate
                 for secondary_item in cluster[1:]:
-                    sec_cov = StoryCoverage(
-                        news_id=news_a.id,
-                        source_name=secondary_item.source_name or "Secondary Source",
-                        source_url=secondary_item.source_url or "",
-                        title=secondary_item.title,
-                        published_at=secondary_item.published_at,
-                        is_primary=False,
-                    )
-                    session.add(sec_cov)
-                    existing_covs.append(sec_cov)
+                    secondary_item.duplicate_of_id = news_a.id
+                    s_name_clean = (secondary_item.source_name or "").strip().lower()
+                    if s_name_clean not in existing_sources:
+                        sec_cov = StoryCoverage(
+                            news_id=news_a.id,
+                            source_name=secondary_item.source_name or "Secondary Source",
+                            source_url=secondary_item.source_url or "",
+                            title=secondary_item.title,
+                            published_at=secondary_item.published_at,
+                            is_primary=False,
+                        )
+                        session.add(sec_cov)
+                        existing_covs.append(sec_cov)
+                        existing_sources.add(s_name_clean)
 
                 news_a.coverage_count = len(existing_covs)
                 news_a.verification_status = "confirmed"
@@ -83,7 +108,7 @@ async def backfill_story_clustering():
                     {"title": item.title, "content": item.content, "source_name": item.source_name}
                     for item in cluster
                 ]
-                enrichment = generate_cluster_ai_enrichment(cluster_dicts, news_a.department or "ai-ml", news_a.subcategory or "General")
+                enrichment = generate_dynamic_ai_explanation(cluster_dicts, news_a.department or "ai-ml", news_a.subcategory or "General")
                 news_a.content_summary = enrichment["content_summary"]
                 news_a.detailed_summary = enrichment["detailed_summary"]
                 news_a.key_points = enrichment["key_points"]
@@ -96,7 +121,7 @@ async def backfill_story_clustering():
                 news_a.verification_status = "confirmed" if len(existing_covs) >= 2 else "single_source"
 
         await session.commit()
-        print(f"Backfill complete! Clustered {clustered_count} multi-source stories.")
+        print(f"Backfill complete! Processed {clustered_count} multi-source story clusters.")
 
 if __name__ == "__main__":
     asyncio.run(backfill_story_clustering())

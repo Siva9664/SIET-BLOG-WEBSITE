@@ -209,6 +209,7 @@ const normalizeMagazine = (item: any): MagazineIssue => ({
       heading: t.heading ?? "",
     }))
     : [],
+  latestAiNews: Array.isArray(item.latestAiNews) ? item.latestAiNews : [],
   gallery: Array.isArray(item.gallery) ? item.gallery : [],
   projectLinks: Array.isArray(item.projectLinks) ? item.projectLinks : [],
   likes: Number(item.likes ?? 0),
@@ -397,6 +398,8 @@ export const api = {
     const res = await req<any>(`/magazine/year/${y}`);
     return normalizePaginated(res, normalizeMagazine);
   },
+  magDownloadUrl: (slug: string) => `${BASE}/magazine/${slug}/download`,
+
 
   adminListMagazines: async () => {
     const data = await req<any>("/admin/magazine");
@@ -412,88 +415,64 @@ export const api = {
     return list.map(normalizeMagazine);
   },
 
-  adminUploadMagazine: async (formData: FormData) => {
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-    const res = await fetch(`${API_BASE}/admin/magazine/upload`, {
+  adminGetTemplate: async () => {
+    return req<any>("/admin/magazine/template");
+  },
+
+  adminUpdateTemplate: async (data: { name?: string; section_schema: any[]; style_rules: any }) => {
+    return req<any>("/admin/magazine/template", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+  adminUploadTemplate: async (formData: FormData) => {
+    return req<any>("/admin/magazine/template/upload", {
       method: "POST",
       body: formData,
-      credentials: "include",
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: "Upload failed" }));
-      throw new Error(err.detail || "Failed to upload magazine PDF");
-    }
-    return res.json();
+  },
+
+  adminUploadMagazine: async (formData: FormData) => {
+    return req<any>("/admin/magazine/upload", {
+      method: "POST",
+      body: formData,
+    });
   },
 
   adminReplaceMagazinePdf: async (id: string, formData: FormData) => {
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-    const res = await fetch(`${API_BASE}/admin/magazine/${id}/replace-pdf`, {
+    return req<any>(`/admin/magazine/${id}/replace-pdf`, {
       method: "POST",
       body: formData,
-      credentials: "include",
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: "PDF replacement failed" }));
-      throw new Error(err.detail || "Failed to replace magazine PDF");
-    }
-    return res.json();
   },
 
   adminCreateEventMagazine: async (formData: FormData) => {
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-    const res = await fetch(`${API_BASE}/admin/magazine/create`, {
+    return req<any>("/admin/magazine/create", {
       method: "POST",
       body: formData,
-      credentials: "include",
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: "Creation failed" }));
-      throw new Error(err.detail || "Failed to create event magazine");
-    }
-    return res.json();
   },
 
   adminUploadMagazineCover: async (id: string, formData: FormData) => {
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-    const res = await fetch(`${API_BASE}/admin/magazine/${id}/cover`, {
+    return req<any>(`/admin/magazine/${id}/cover`, {
       method: "POST",
       body: formData,
-      credentials: "include",
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: "Cover upload failed" }));
-      throw new Error(err.detail || "Failed to upload cover pages");
-    }
-    return res.json();
   },
 
   adminUploadMagazineBody: async (id: string, formData: FormData) => {
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-    const res = await fetch(`${API_BASE}/admin/magazine/${id}/body`, {
+    return req<any>(`/admin/magazine/${id}/body`, {
       method: "POST",
       body: formData,
-      credentials: "include",
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: "Body upload failed" }));
-      throw new Error(err.detail || "Failed to upload body pages");
-    }
-    return res.json();
   },
 
   adminUploadMagazineGallery: async (id: string, formData: FormData) => {
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-    const res = await fetch(`${API_BASE}/admin/magazine/${id}/gallery`, {
+    return req<any>(`/admin/magazine/${id}/gallery`, {
       method: "POST",
       body: formData,
-      credentials: "include",
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: "Gallery upload failed" }));
-      throw new Error(err.detail || "Failed to upload gallery photos");
-    }
-    return res.json();
   },
 
   adminPublishMagazine: async (id: string) => {
@@ -527,18 +506,11 @@ export const api = {
   },
 
   adminAutoGenerateFromFile: async (formData: FormData) => {
-    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-    const res = await fetch(`${API_BASE}/admin/magazine/ai/auto-generate-from-file`, {
+    const res = await req<any>("/admin/magazine/ai/auto-generate-from-file", {
       method: "POST",
       body: formData,
-      credentials: "include",
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: "File auto-generation failed" }));
-      throw new Error(err.detail || err.message || "Failed to process file with AI");
-    }
-    const json = await res.json();
-    return (json?.data || json) as {
+    return (res?.data || res) as {
       magazine_issue_title: string;
       description: string;
       writeup_headline: string;

@@ -15,11 +15,15 @@ export interface DetailedSection {
 
 export interface CoverageEntry {
   id: string;
-  sourceName: string;
+  sourceName?: string;
+  source_name?: string;
   title: string;
-  url: string;
-  publishedAt: string;
+  url?: string;
+  source_url?: string;
+  publishedAt?: string;
+  published_at?: string;
   isPrimary?: boolean;
+  is_primary?: boolean;
 }
 
 export interface NewsItem {
@@ -84,6 +88,18 @@ export interface MagazineTOCEntry {
   heading: string;
 }
 
+export interface MagazineAiNewsItem {
+  id: string;
+  slug: string;
+  title: string;
+  published_at: string;
+  source_name: string;
+  department: string;
+  simple_explanation: string;
+  image_url?: string;
+  coverage_count?: number;
+}
+
 export interface MagazineIssue {
   id: string;
   slug: string;
@@ -99,6 +115,7 @@ export interface MagazineIssue {
   issueDate?: string;
   pages?: MagazinePage[];
   tocEntries?: MagazineTOCEntry[];
+  latestAiNews?: MagazineAiNewsItem[];
   gallery: string[];
   projectLinks: { label: string; url: string }[];
   likes: number;

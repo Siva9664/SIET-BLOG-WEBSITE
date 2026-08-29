@@ -93,3 +93,64 @@ class MagazineProjectLink(Base, BaseModelMixin):
     url: Mapped[str] = mapped_column(String(500), nullable=False)
     
     magazine: Mapped["Magazine"] = relationship(back_populates="project_links")
+
+
+DEFAULT_SECTION_SCHEMA = [
+    {
+        "section_type": "cover",
+        "label": "Issue Cover & Title",
+        "enabled": True,
+        "layout_rules": {"show_logo": True, "title_alignment": "center", "cover_image": True}
+    },
+    {
+        "section_type": "editors_note",
+        "label": "Editor's Note & Overview",
+        "enabled": True,
+        "layout_rules": {"columns": 1, "highlight_quote": True}
+    },
+    {
+        "section_type": "featured_story",
+        "label": "Featured Research & Writeup",
+        "enabled": True,
+        "layout_rules": {"columns": 2, "show_subheadings": True, "drop_cap": True}
+    },
+    {
+        "section_type": "events_roundup",
+        "label": "Key Events & Proceedings",
+        "enabled": True,
+        "layout_rules": {"card_grid": True, "show_metrics": True}
+    },
+    {
+        "section_type": "gallery",
+        "label": "Event Photo Gallery",
+        "enabled": True,
+        "layout_rules": {"grid_columns": 3, "caption_max_words": 12}
+    },
+    {
+        "section_type": "closing_ai_news",
+        "label": "Latest in AI & Research Digest",
+        "enabled": True,
+        "layout_rules": {"max_items": 5, "show_source": True, "show_date": True}
+    }
+]
+
+DEFAULT_STYLE_RULES = {
+    "accent_color": "#8B0000",
+    "background_color": "#FDFBF7",
+    "text_color": "#111111",
+    "font_display": "Playfair Display",
+    "font_body": "Source Serif Pro",
+    "font_util": "Inter",
+    "border_style": "classic_thin",
+    "spacing": "normal"
+}
+
+
+class MagazineTemplate(Base, BaseModelMixin):
+    __tablename__ = "magazine_templates"
+
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="SIET Standard Issue Template")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    section_schema: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    style_rules: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+

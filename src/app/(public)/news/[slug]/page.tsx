@@ -329,7 +329,7 @@ export default async function NewsDetailPage(props: { params: Params }) {
                   "{cov.title}"
                 </h4>
                 <p className="font-util text-eyebrow text-ink-soft">
-                  {new Date(cov.publishedAt).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}
+                  {new Date(cov.publishedAt || cov.published_at || item.publishedAt || new Date()).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}
                 </p>
               </div>
 

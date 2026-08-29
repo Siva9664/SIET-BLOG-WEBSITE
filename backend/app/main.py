@@ -51,9 +51,12 @@ app.add_middleware(
 from fastapi.staticfiles import StaticFiles
 import os
 
-# Ensure uploads directory exists
+# Ensure uploads and static directories exist
+static_dir = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs("uploads/magazines", exist_ok=True)
+os.makedirs(os.path.join(static_dir, "magazine-backgrounds"), exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 from app.shared.middleware.audit import AuditMiddleware
 from app.shared.middleware.auth import AuthenticationMiddleware

@@ -172,7 +172,8 @@ def clean_html_text(raw_html: str) -> str:
     return text
 
 
-def extract_image_from_item(item_elem: ET.Element, desc_html: str, department: str, index: int) -> str:
+def extract_raw_rss_image(item_elem: ET.Element, desc_html: str) -> Optional[str]:
+    """Tier 1: Extract inline image candidate from RSS XML item tags or description HTML."""
     for tag in ["{http://search.yahoo.com/mrss/}content", "{http://search.yahoo.com/mrss/}thumbnail", "media:content", "media:thumbnail", "enclosure"]:
         elem = item_elem.find(tag)
         if elem is not None and elem.get("url"):
@@ -181,12 +182,178 @@ def extract_image_from_item(item_elem: ET.Element, desc_html: str, department: s
                 return url
 
     if desc_html:
-        img_match = re.search(r'<img[^>]+src=["\'](https?://[^"\']+)["\']', desc_html)
+        img_match = re.search(r'<img[^>]+src=["\'](https?://[^"\']+)["\']', desc_html, re.IGNORECASE)
         if img_match:
             img_url = img_match.group(1)
             if not any(bad in img_url.lower() for bad in [".gif", "pixel", "icon", "tracker", "logo"]):
                 return img_url
 
+    return None
+
+
+def extract_meta_image_from_html(html: str, base_url: str) -> Optional[str]:
+    """Tier 2: Extract featured og:image or twitter:image meta tags from article HTML page."""
+    if not html:
+        return None
+    patterns = [
+        r'<meta[^>]+(?:property|name)=["\'](?:og:image|og:image:url|og:image:secure_url|twitter:image|twitter:image:src)["\'][^>]+content=["\']([^"\'\s]+)["\']',
+        r'<meta[^>]+content=["\']([^"\'\s]+)["\'][^>]+(?:property|name)=["\'](?:og:image|og:image:url|og:image:secure_url|twitter:image|twitter:image:src)["\']',
+    ]
+    for p in patterns:
+        m = re.search(p, html, re.IGNORECASE)
+        if m:
+            candidate = m.group(1).strip()
+            if candidate and not candidate.startswith("data:"):
+                from urllib.parse import urljoin
+                full_url = urljoin(base_url, candidate)
+                if full_url.startswith("http"):
+                    return full_url
+    return None
+
+
+def extract_body_images_from_html(html: str, base_url: str) -> List[str]:
+    """Tier 3: Extract substantial <img> elements from article body HTML (filters out tiny icons/ads)."""
+    if not html:
+        return []
+    candidates = []
+    from urllib.parse import urljoin
+    img_matches = re.findall(r'<img[^>]+>', html, re.IGNORECASE)
+    for img_tag in img_matches:
+        w_match = re.search(r'width=["\']?(\d+)["\']?', img_tag, re.IGNORECASE)
+        h_match = re.search(r'height=["\']?(\d+)["\']?', img_tag, re.IGNORECASE)
+        if w_match and int(w_match.group(1)) < 100:
+            continue
+        if h_match and int(h_match.group(1)) < 100:
+            continue
+
+        src_match = re.search(r'src=["\']([^"\'\s]+)["\']', img_tag, re.IGNORECASE) or re.search(r'data-src=["\']([^"\'\s]+)["\']', img_tag, re.IGNORECASE)
+        if src_match:
+            img_url = src_match.group(1).strip()
+            if not img_url or img_url.startswith("data:"):
+                continue
+
+            low = img_url.lower()
+            unwanted = [".gif", ".svg", "pixel", "icon", "logo", "avatar", "tracker", "gravatar", "badge", "ad-", "button", "feedburner"]
+            if any(bad in low for bad in unwanted):
+                continue
+
+            full_url = urljoin(base_url, img_url)
+            if full_url.startswith("http") and full_url not in candidates:
+                candidates.append(full_url)
+    return candidates
+
+
+async def validate_image_url(url: str, client: Optional[httpx.AsyncClient] = None) -> bool:
+    """Validates that candidate image URL returns HTTP 200/206 with valid image Content-Type."""
+    if not url or not url.startswith("http"):
+        return False
+    if any(domain in url for domain in ["unsplash.com", "images.unsplash.com"]):
+        return True
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
+    }
+
+    own_client = False
+    if client is None:
+        client = httpx.AsyncClient(timeout=6.0, follow_redirects=True, headers=headers)
+        own_client = True
+
+    try:
+        try:
+            resp = await client.head(url, headers=headers, follow_redirects=True, timeout=5.0)
+            if resp.status_code == 200:
+                ct = resp.headers.get("content-type", "").lower()
+                if ct.startswith("image/") or "octet-stream" in ct or "binary" in ct:
+                    return True
+        except Exception:
+            pass
+
+        resp = await client.get(url, headers={**headers, "Range": "bytes=0-1024"}, follow_redirects=True, timeout=6.0)
+        if resp.status_code in (200, 206):
+            ct = resp.headers.get("content-type", "").lower()
+            if ct.startswith("image/") or "octet-stream" in ct or "binary" in ct:
+                return True
+            body_head = resp.content[:16]
+            if body_head.startswith(b'\xff\xd8\xff') or body_head.startswith(b'\x89PNG') or body_head.startswith(b'GIF8') or body_head.startswith(b'RIFF'):
+                return True
+    except Exception:
+        pass
+    finally:
+        if own_client:
+            await client.aclose()
+
+    return False
+
+
+async def resolve_best_article_image(
+    rss_img_candidate: Optional[str],
+    article_url: str,
+    article_html: Optional[str],
+    department: str,
+    index: int,
+    client: Optional[httpx.AsyncClient] = None
+) -> str:
+    """
+    4-Tier Article Image Resolution:
+    1. RSS item image / enclosure / media tags (validated via HTTP)
+    2. Article page og:image / twitter:image meta tags (validated via HTTP)
+    3. Article main body substantial <img> tags (validated via HTTP)
+    4. Stock fallback image (DEFAULT_IMAGES)
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    }
+    own_client = False
+    if client is None:
+        client = httpx.AsyncClient(timeout=8.0, follow_redirects=True, headers=headers)
+        own_client = True
+
+    try:
+        # Tier 1: RSS Image Tag
+        if rss_img_candidate and rss_img_candidate.startswith("http"):
+            if await validate_image_url(rss_img_candidate, client):
+                return rss_img_candidate
+
+        # Fetch HTML if missing
+        if not article_html and article_url and article_url.startswith("http"):
+            try:
+                resp = await client.get(article_url, timeout=8.0)
+                if resp.status_code == 200:
+                    article_html = resp.text
+            except Exception:
+                pass
+
+        if article_html:
+            # Tier 2: og:image or twitter:image
+            og_img = extract_meta_image_from_html(article_html, article_url)
+            if og_img and await validate_image_url(og_img, client):
+                return og_img
+
+            # Tier 3: Substantial body image
+            body_imgs = extract_body_images_from_html(article_html, article_url)
+            for body_img in body_imgs[:3]:
+                if await validate_image_url(body_img, client):
+                    return body_img
+
+    except Exception as ex:
+        print(f"Image resolution note for {article_url}: {ex}")
+    finally:
+        if own_client:
+            await client.aclose()
+
+    # Tier 4: Stock Fallback
+    fallback_pool = DEPARTMENT_FALLBACK_IMAGES.get(department, DEPARTMENT_FALLBACK_IMAGES["ai-ml"])
+    return fallback_pool[index % len(fallback_pool)]
+
+
+def extract_image_from_item(item_elem: ET.Element, desc_html: str, department: str, index: int) -> str:
+    """Legacy sync fallback wrapper returning raw RSS candidate or stock fallback."""
+    candidate = extract_raw_rss_image(item_elem, desc_html)
+    if candidate:
+        return candidate
     fallback_pool = DEPARTMENT_FALLBACK_IMAGES.get(department, DEPARTMENT_FALLBACK_IMAGES["ai-ml"])
     return fallback_pool[index % len(fallback_pool)]
 
@@ -207,12 +374,26 @@ def calculate_story_similarity(title1: str, desc1: str, title2: str, desc2: str)
     if not tokens1 or not tokens2:
         return 0.0
 
-    intersection = tokens1.intersection(tokens2)
-    union = tokens1.union(tokens2)
-    jaccard = len(intersection) / len(union) if union else 0.0
-
+    t_jaccard = len(tokens1.intersection(tokens2)) / len(tokens1.union(tokens2)) if tokens1.union(tokens2) else 0.0
     seq_ratio = SequenceMatcher(None, title1.lower(), title2.lower()).ratio()
-    return (jaccard * 0.6) + (seq_ratio * 0.4)
+
+    # Lead summary / content tokens overlap
+    c_tok1 = tokenize_title(f"{title1} {(desc1 or '')[:250]}")
+    c_tok2 = tokenize_title(f"{title2} {(desc2 or '')[:250]}")
+    c_jaccard = len(c_tok1.intersection(c_tok2)) / len(c_tok1.union(c_tok2)) if (c_tok1 and c_tok2) else 0.0
+
+    score = (t_jaccard * 0.45) + (seq_ratio * 0.35) + (c_jaccard * 0.20)
+
+    # Keyword/Entity match boost for technical terms
+    shared_keywords = tokens1.intersection(tokens2)
+    if len(shared_keywords) >= 2:
+        score += 0.06
+    elif len(shared_keywords) == 1:
+        kw = list(shared_keywords)[0]
+        if len(kw) >= 6:
+            score += 0.04
+
+    return min(1.0, score)
 
 
 def classify_article(title: str, content: str, default_dept: str) -> Tuple[str, str, List[str]]:
@@ -245,18 +426,18 @@ def classify_article(title: str, content: str, default_dept: str) -> Tuple[str, 
 
 # ─── FULL-CONTENT EXTRACTION STAGE ───────────────────────────────────────────
 
-def fetch_full_article_content(url: str) -> Tuple[str, str]:
+def fetch_full_article_content(url: str) -> Tuple[str, str, Optional[str]]:
     """
     Fetches full article main body text using trafilatura readability parser.
-    Returns (full_text, content_depth).
+    Returns (full_text, content_depth, raw_html).
     """
     if not url or "arxiv.org/pdf" in url:
-        return "", "summary_only"
+        return "", "summary_only", None
 
     try:
         downloaded = trafilatura.fetch_url(url)
         if not downloaded:
-            return "", "summary_only"
+            return "", "summary_only", None
 
         extracted = trafilatura.extract(
             downloaded,
@@ -269,11 +450,12 @@ def fetch_full_article_content(url: str) -> Tuple[str, str]:
 
         if extracted and len(extracted.strip()) >= 150:
             clean_body = re.sub(r"\n{3,}", "\n\n", extracted.strip())
-            return clean_body, "full"
+            return clean_body, "full", downloaded
+        return "", "summary_only", downloaded
     except Exception as ex:
         print(f"Full-text fetch exception for {url}: {ex}")
 
-    return "", "summary_only"
+    return "", "summary_only", None
 
 
 # ─── DYNAMIC EXPLANATION ENRICHMENT WITH CUSTOM SUBHEADINGS ───────────────────
@@ -522,12 +704,10 @@ async def run_sync_pipeline(is_full_sync: bool = False) -> Dict[str, Any]:
     async with async_session_maker() as session:
         sources = await seed_sources_in_db(session)
 
+        active_sources = [s for s in sources if s["is_active"]]
+        feed_results = await asyncio.gather(*[fetch_rss_feed(s) for s in active_sources])
         all_batch_items = []
-        for source in sources:
-            if not source["is_active"]:
-                continue
-
-            fetched_items = await fetch_rss_feed(source)
+        for source, fetched_items in zip(active_sources, feed_results):
             if not fetched_items:
                 continue
 
@@ -543,29 +723,58 @@ async def run_sync_pipeline(is_full_sync: bool = False) -> Dict[str, Any]:
         )
         recent_db_news = list(recent_db_query.scalars().all())
 
+        seen_urls: set[str] = set()
+        seen_hashes: set[str] = set()
+
         for item in all_batch_items:
+            if item["source_url"] in seen_urls:
+                duplicate_count += 1
+                continue
+            seen_urls.add(item["source_url"])
+
             try:
                 c_hash = compute_content_hash(item["title"], item["source_url"], item["content"])
+                if c_hash in seen_hashes:
+                    duplicate_count += 1
+                    continue
+                seen_hashes.add(c_hash)
 
                 async with session.begin_nested():
-                    # Check exact URL duplicate
+                    # Check exact URL duplicate in DB
                     stmt_url = select(News).where(News.source_url == item["source_url"])
                     existing_url_news = (await session.execute(stmt_url)).scalar_one_or_none()
                     if existing_url_news:
                         duplicate_count += 1
                         continue
 
-                    # Check exact Hash duplicate
+                    # Check exact Hash duplicate in DB
                     stmt_hash = select(News).where(News.content_hash == c_hash)
                     existing_hash_news = (await session.execute(stmt_hash)).scalar_one_or_none()
                     if existing_hash_news:
                         duplicate_count += 1
                         continue
 
-                    # Perform Full-Article Text Extraction
-                    full_text, content_depth = fetch_full_article_content(item["source_url"])
+                    # Perform Full-Article Text & Image Extraction
+                    raw_html = None
+                    try:
+                        full_text, content_depth, raw_html = await asyncio.wait_for(
+                            asyncio.to_thread(fetch_full_article_content, item["source_url"]),
+                            timeout=4.0
+                        )
+                    except Exception:
+                        full_text, content_depth, raw_html = "", "summary_only", None
+
                     item["full_text"] = full_text
                     item["content_depth"] = content_depth
+
+                    # Accurate Image Resolution (RSS -> og:image -> body img -> stock fallback)
+                    item["image_url"] = await resolve_best_article_image(
+                        rss_img_candidate=item.get("image_url"),
+                        article_url=item["source_url"],
+                        article_html=raw_html,
+                        department=item["department"],
+                        index=discovered_count
+                    )
 
                     # Fuzzy Match against Recent DB Articles
                     matched_db_news: Optional[News] = None
@@ -576,7 +785,7 @@ async def run_sync_pipeline(is_full_sync: bool = False) -> Dict[str, Any]:
                         sim_score = calculate_story_similarity(
                             item["title"], item["content"], db_news.title, db_news.content
                         )
-                        if sim_score >= 0.38:
+                        if sim_score >= 0.25:
                             matched_db_news = db_news
                             break
 
@@ -674,8 +883,11 @@ async def run_sync_pipeline(is_full_sync: bool = False) -> Dict[str, Any]:
                         is_primary=True,
                     )
                     session.add(primary_cov)
+                    await session.flush()
                     new_count += 1
                     recent_db_news.append(news_record)
+
+                await session.commit()
 
             except Exception as ex:
                 print(f"Item error: {ex}")
@@ -701,15 +913,72 @@ async def run_sync_pipeline(is_full_sync: bool = False) -> Dict[str, Any]:
         session.add(sync_log)
         await session.commit()
 
-        return {
-            "duration_seconds": duration,
-            "sources_checked": len(sources),
-            "articles_discovered": discovered_count,
-            "articles_new": new_count,
-            "articles_duplicate": duplicate_count,
-            "articles_failed": failed_count,
-            "status": log_status,
-        }
+async def reprocess_stock_fallback_images(limit: int = 250) -> Dict[str, int]:
+    """
+    Re-runs improved 4-tier image extraction and HTTP validation against stored articles
+    that currently use a stock fallback image (Unsplash URLs).
+    Returns before/after breakdown statistics.
+    """
+    og_upgraded = 0
+    body_upgraded = 0
+    remained_stock = 0
+    total_processed = 0
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+    }
+
+    async with async_session_maker() as session:
+        stmt = select(News).where(News.image_url.like("%unsplash.com%")).order_by(News.id.desc()).limit(limit)
+        articles = (await session.execute(stmt)).scalars().all()
+        total_processed = len(articles)
+
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, headers=headers) as client:
+            for idx, article in enumerate(articles):
+                url = article.source_url
+                if not url or not url.startswith("http"):
+                    remained_stock += 1
+                    continue
+
+                html = None
+                try:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        html = resp.text
+                except Exception:
+                    pass
+
+                new_img = None
+
+                if html:
+                    og_candidate = extract_meta_image_from_html(html, url)
+                    if og_candidate and await validate_image_url(og_candidate, client):
+                        new_img = og_candidate
+                        og_upgraded += 1
+                    else:
+                        body_candidates = extract_body_images_from_html(html, url)
+                        for b_img in body_candidates[:3]:
+                            if await validate_image_url(b_img, client):
+                                new_img = b_img
+                                body_upgraded += 1
+                                break
+
+                if new_img:
+                    article.image_url = new_img
+                else:
+                    remained_stock += 1
+
+                if (idx + 1) % 20 == 0 or idx == len(articles) - 1:
+                    await session.commit()
+
+    return {
+        "total_processed": total_processed,
+        "upgraded_og_image": og_upgraded,
+        "upgraded_body_image": body_upgraded,
+        "total_upgraded_to_real": og_upgraded + body_upgraded,
+        "remained_stock_fallback": remained_stock,
+    }
 
 
 if __name__ == "__main__":

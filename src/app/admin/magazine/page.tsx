@@ -83,6 +83,134 @@ export default function AdminMagazinePage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  // Template Editor State
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [templateName, setTemplateName] = useState("SIET Standard Issue Template");
+  const [sectionSchema, setSectionSchema] = useState<any[]>([]);
+  const [styleRules, setStyleRules] = useState<any>({
+    accent_color: "#8B0000",
+    background_color: "#FDFBF7",
+    text_color: "#111111",
+    font_display: "Playfair Display",
+    font_body: "Source Serif Pro",
+    spacing: "normal",
+  });
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [templateSuccess, setTemplateSuccess] = useState<string | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+
+  const loadTemplate = async () => {
+    setTemplateLoading(true);
+    setTemplateError(null);
+    try {
+      const res = await api.adminGetTemplate();
+      const data = res.data || res;
+      setTemplateName(data.name || "SIET Standard Issue Template");
+      setSectionSchema(Array.isArray(data.section_schema) ? data.section_schema : []);
+      setStyleRules(data.style_rules || {
+        accent_color: "#8B0000",
+        background_color: "#FDFBF7",
+        text_color: "#111111",
+        font_display: "Playfair Display",
+        font_body: "Source Serif Pro",
+        spacing: "normal",
+      });
+    } catch (err: any) {
+      console.error("Failed to load template:", err);
+      setTemplateError("Failed to load active template.");
+    } finally {
+      setTemplateLoading(false);
+    }
+  };
+
+  const handleOpenTemplateModal = () => {
+    loadTemplate();
+    setTemplateSuccess(null);
+    setTemplateError(null);
+    setIsTemplateModalOpen(true);
+  };
+
+  const handleSaveTemplate = async () => {
+    setTemplateSaving(true);
+    setTemplateError(null);
+    setTemplateSuccess(null);
+    try {
+      const res = await api.adminUpdateTemplate({
+        name: templateName,
+        section_schema: sectionSchema,
+        style_rules: styleRules,
+      });
+      const data = res.data || res;
+      setTemplateName(data.name);
+      setSectionSchema(data.section_schema);
+      setStyleRules(data.style_rules);
+      setTemplateSuccess("✅ Active template saved! Changes auto-apply to all future magazine generations.");
+    } catch (err: any) {
+      console.error("Save template error:", err);
+      setTemplateError(err?.message || "Failed to save template changes.");
+    } finally {
+      setTemplateSaving(false);
+    }
+  };
+
+  const handleUploadTemplateFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setTemplateSaving(true);
+    setTemplateError(null);
+    setTemplateSuccess(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await api.adminUploadTemplate(fd);
+      const data = res.data || res;
+      setTemplateName(data.name);
+      setSectionSchema(data.section_schema);
+      setStyleRules(data.style_rules);
+      setTemplateSuccess("✨ Template uploaded & parsed! Headings mapped to section schema.");
+    } catch (err: any) {
+      console.error("Upload template error:", err);
+      setTemplateError(err?.message || "Failed to parse template file.");
+    } finally {
+      setTemplateSaving(false);
+    }
+  };
+
+  const moveSection = (idx: number, direction: "up" | "down") => {
+    const newSchema = [...sectionSchema];
+    const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= newSchema.length) return;
+    const temp = newSchema[idx];
+    newSchema[idx] = newSchema[targetIdx];
+    newSchema[targetIdx] = temp;
+    setSectionSchema(newSchema);
+  };
+
+  const toggleSectionEnabled = (idx: number) => {
+    const newSchema = [...sectionSchema];
+    newSchema[idx] = { ...newSchema[idx], enabled: !newSchema[idx].enabled };
+    setSectionSchema(newSchema);
+  };
+
+  const updateSectionLabel = (idx: number, label: string) => {
+    const newSchema = [...sectionSchema];
+    newSchema[idx] = { ...newSchema[idx], label };
+    setSectionSchema(newSchema);
+  };
+
+  const addCustomSection = () => {
+    setSectionSchema((prev) => [
+      ...prev,
+      {
+        section_type: `custom_${Date.now().toString().slice(-4)}`,
+        label: "New Custom Section",
+        enabled: true,
+        layout_rules: { columns: 1 },
+      },
+    ]);
+  };
+
   const loadIssues = async () => {
     setLoading(true);
     setError(null);
@@ -400,6 +528,12 @@ export default function AdminMagazinePage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleOpenTemplateModal}
+            className="font-util text-eyebrow uppercase tracking-wider text-ink bg-paper-2 hover:bg-paper-3 border border-line transition-colors px-4 py-2 cursor-pointer font-bold flex items-center gap-1.5"
+          >
+            <span>🎨</span> Edit Active Template
+          </button>
           <button
             onClick={() => handleOpenUpload("event")}
             className="font-util text-eyebrow uppercase tracking-wider text-paper bg-accent hover:opacity-90 border border-accent transition-opacity px-4 py-2 cursor-pointer font-bold flex items-center gap-1.5 shadow-sm"
@@ -965,6 +1099,238 @@ export default function AdminMagazinePage() {
                 </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* STRUCTURED TEMPLATE EDITOR MODAL */}
+      {isTemplateModalOpen && (
+        <div className="fixed inset-0 z-50 bg-paper/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-4xl border border-line bg-paper-2 p-6 space-y-6 shadow-xl my-8">
+            {/* Header */}
+            <div className="flex justify-between items-center border-b border-line pb-3">
+              <div>
+                <p className="font-util text-[9px] uppercase tracking-wider text-accent font-bold flex items-center gap-1">
+                  <span>🎨</span> Admin Layout Engine
+                </p>
+                <h2 className="font-display text-body font-semibold text-ink">
+                  Magazine Template &amp; Section Layout Editor
+                </h2>
+              </div>
+              <button
+                onClick={() => setIsTemplateModalOpen(false)}
+                className="font-util text-eyebrow text-ink-soft hover:text-ink uppercase tracking-wider text-xs cursor-pointer"
+              >
+                [×]
+              </button>
+            </div>
+
+            {templateLoading ? (
+              <div className="p-8 text-center font-display text-xs italic text-ink-soft">
+                Loading active template configuration...
+              </div>
+            ) : (
+              <div className="space-y-6 text-xs">
+                {/* Template Name & File Upload Bar */}
+                <div className="bg-paper p-4 border border-line space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-1 flex-1">
+                      <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider font-bold">
+                        Template Name
+                      </label>
+                      <input
+                        type="text"
+                        value={templateName}
+                        onChange={(e) => setTemplateName(e.target.value)}
+                        className="w-full border border-line bg-paper-2 px-3 py-1.5 outline-none focus:border-ink font-medium"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider font-bold">
+                        Upload Template File (.docx / .pdf)
+                      </label>
+                      <label className="font-util text-[10px] uppercase tracking-wider text-ink border border-line bg-paper-2 hover:bg-paper-3 px-3 py-1.5 cursor-pointer block text-center font-bold">
+                        <span>📁 Select File</span>
+                        <input
+                          type="file"
+                          accept=".docx,.doc,.pdf,.txt"
+                          onChange={handleUploadTemplateFile}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section Schema List (Drag / Reorder / Rename / Toggle) */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-line pb-2">
+                    <h3 className="font-util text-eyebrow text-ink uppercase tracking-wider font-bold flex items-center gap-1.5">
+                      <span>📑</span> Section Layout &amp; Reordering
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={addCustomSection}
+                      className="font-util text-[10px] uppercase tracking-wider text-accent hover:underline cursor-pointer font-bold"
+                    >
+                      + Add Custom Section
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                    {sectionSchema.map((sec, idx) => (
+                      <div
+                        key={idx}
+                        className={`border p-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 transition-colors ${
+                          sec.enabled ? "bg-paper border-line" : "bg-paper-3 border-line/60 opacity-60"
+                        }`}
+                      >
+                        {/* Move Up/Down Controls */}
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() => moveSection(idx, "up")}
+                            className="w-6 h-6 border border-line bg-paper-2 hover:bg-paper-3 text-ink flex items-center justify-center font-bold disabled:opacity-30 cursor-pointer"
+                            title="Move Up"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === sectionSchema.length - 1}
+                            onClick={() => moveSection(idx, "down")}
+                            className="w-6 h-6 border border-line bg-paper-2 hover:bg-paper-3 text-ink flex items-center justify-center font-bold disabled:opacity-30 cursor-pointer"
+                            title="Move Down"
+                          >
+                            ↓
+                          </button>
+                          <span className="font-util text-[10px] text-ink-soft w-5 text-center font-bold">
+                            #{idx + 1}
+                          </span>
+                        </div>
+
+                        {/* Section Label & Type */}
+                        <div className="flex-1 flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={sec.label || ""}
+                            onChange={(e) => updateSectionLabel(idx, e.target.value)}
+                            className="w-full border border-line bg-paper-2 px-3 py-1 text-xs outline-none focus:border-ink font-medium"
+                          />
+                          <span className="font-util text-[9px] uppercase tracking-wider text-accent bg-accent/10 border border-accent/20 px-2 py-0.5 whitespace-nowrap font-bold">
+                            {sec.section_type}
+                          </span>
+                        </div>
+
+                        {/* Toggle On/Off */}
+                        <label className="flex items-center gap-2 cursor-pointer font-util text-[10px] uppercase tracking-wider font-semibold">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(sec.enabled)}
+                            onChange={() => toggleSectionEnabled(idx)}
+                            className="accent-accent cursor-pointer"
+                          />
+                          <span>{sec.enabled ? "Active" : "Disabled"}</span>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Style Rules Form */}
+                <div className="space-y-3 border-t border-line pt-4">
+                  <h3 className="font-util text-eyebrow text-ink uppercase tracking-wider font-bold flex items-center gap-1.5">
+                    <span>🎨</span> House Styling &amp; Typography Rules
+                  </h3>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 bg-paper p-4 border border-line">
+                    <div className="space-y-1">
+                      <label className="block font-util text-[10px] text-ink-soft uppercase tracking-wider font-semibold">
+                        Accent Color
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="color"
+                          value={styleRules.accent_color || "#8B0000"}
+                          onChange={(e) => setStyleRules({ ...styleRules, accent_color: e.target.value })}
+                          className="w-8 h-8 cursor-pointer border border-line bg-paper p-0.5"
+                        />
+                        <input
+                          type="text"
+                          value={styleRules.accent_color || "#8B0000"}
+                          onChange={(e) => setStyleRules({ ...styleRules, accent_color: e.target.value })}
+                          className="w-full border border-line bg-paper-2 px-2 py-1 font-mono text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block font-util text-[10px] text-ink-soft uppercase tracking-wider font-semibold">
+                        Headline Font
+                      </label>
+                      <select
+                        value={styleRules.font_display || "Playfair Display"}
+                        onChange={(e) => setStyleRules({ ...styleRules, font_display: e.target.value })}
+                        className="w-full border border-line bg-paper-2 px-2 py-1.5 text-xs outline-none cursor-pointer"
+                      >
+                        <option value="Playfair Display">Playfair Display (Editorial Serif)</option>
+                        <option value="Cinzel">Cinzel (Classic Serif)</option>
+                        <option value="Lora">Lora (Modern Serif)</option>
+                        <option value="Inter">Inter (Clean Sans)</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="block font-util text-[10px] text-ink-soft uppercase tracking-wider font-semibold">
+                        Body Font
+                      </label>
+                      <select
+                        value={styleRules.font_body || "Source Serif Pro"}
+                        onChange={(e) => setStyleRules({ ...styleRules, font_body: e.target.value })}
+                        className="w-full border border-line bg-paper-2 px-2 py-1.5 text-xs outline-none cursor-pointer"
+                      >
+                        <option value="Source Serif Pro">Source Serif Pro (Book)</option>
+                        <option value="Georgia">Georgia (Traditional)</option>
+                        <option value="Inter">Inter (Modern Sans)</option>
+                        <option value="Roboto">Roboto (Technical Sans)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Messages */}
+                {templateSuccess && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-800 font-util text-[10px] uppercase tracking-wider font-bold">
+                    {templateSuccess}
+                  </div>
+                )}
+                {templateError && (
+                  <div className="p-3 bg-rose-50 border border-rose-300 text-rose-800 font-util text-[10px] uppercase tracking-wider font-bold">
+                    {templateError}
+                  </div>
+                )}
+
+                {/* Footer Save Button */}
+                <div className="flex justify-end gap-3 border-t border-line pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setIsTemplateModalOpen(false)}
+                    className="font-util text-eyebrow uppercase tracking-wider text-ink border border-line px-4 py-2 hover:bg-paper-3 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveTemplate}
+                    disabled={templateSaving}
+                    className="font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent border border-ink px-6 py-2 transition-colors cursor-pointer font-bold disabled:opacity-50"
+                  >
+                    {templateSaving ? "Saving Template..." : "Save Active Template"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

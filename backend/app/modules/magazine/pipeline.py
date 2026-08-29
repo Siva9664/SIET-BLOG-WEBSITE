@@ -129,3 +129,95 @@ async def process_magazine_pdf(magazine_id: int, pdf_path: str):
             magazine.status = "failed"
             magazine.failure_reason = str(e)
             await session.commit()
+
+
+def compile_magazine_pdf(magazine: Magazine, pages: list[MagazinePage], ai_news: list[dict]) -> str:
+    """
+    Compiles full magazine issue into a single downloadable PDF including all pages
+    and the 'Latest in AI' closing section. Caches result in uploads/magazines/generated/{slug}_full.pdf.
+    """
+    os.makedirs("uploads/magazines/generated", exist_ok=True)
+    target_path = f"uploads/magazines/generated/{magazine.slug}_full.pdf"
+
+    # Return cached PDF if already exists
+    if os.path.exists(target_path):
+        return target_path
+
+    out_doc = fitz.open()
+
+    # 1. Check if source PDF exists
+    source_pdf_path = None
+    if magazine.pdf_url:
+        clean_url = magazine.pdf_url.lstrip("/")
+        if os.path.exists(clean_url):
+            source_pdf_path = clean_url
+
+    if source_pdf_path:
+        try:
+            src = fitz.open(source_pdf_path)
+            out_doc.insert_pdf(src)
+            src.close()
+        except Exception as e:
+            logger.warning(f"Could not open source PDF {source_pdf_path}: {e}")
+
+    # 2. If no source PDF or source PDF failed, compile from page images / text
+    if len(out_doc) == 0 and pages:
+        sorted_pages = sorted(pages, key=lambda p: p.page_number)
+        for p in sorted_pages:
+            img_rel = (p.image_url or "").lstrip("/")
+            if img_rel and os.path.exists(img_rel):
+                try:
+                    img_doc = fitz.open(img_rel)
+                    pdf_bytes = img_doc.convert_to_pdf()
+                    img_doc.close()
+                    img_pdf = fitz.open("pdf", pdf_bytes)
+                    out_doc.insert_pdf(img_pdf)
+                    img_pdf.close()
+                except Exception as e:
+                    logger.warning(f"Could not convert page image {img_rel} to PDF page: {e}")
+            elif p.extracted_text:
+                page = out_doc.new_page(width=595, height=842)
+                page.insert_textbox(fitz.Rect(40, 40, 555, 800), p.extracted_text, fontsize=11, fontname="helv")
+
+    # 3. If still empty, create title cover page
+    if len(out_doc) == 0:
+        cover_page = out_doc.new_page(width=595, height=842)
+        cover_page.insert_textbox(fitz.Rect(40, 100, 555, 180), magazine.title, fontsize=24, fontname="helv", color=(0.1, 0.1, 0.1))
+        if magazine.description:
+            cover_page.insert_textbox(fitz.Rect(40, 190, 555, 300), magazine.description, fontsize=12, fontname="helv", color=(0.3, 0.3, 0.3))
+
+    # 4. Append 'Latest in AI' Closing Section Page
+    if ai_news:
+        ai_page = out_doc.new_page(width=595, height=842)
+        
+        # Header banner
+        ai_page.draw_rect(fitz.Rect(40, 40, 555, 42), color=(0.1, 0.1, 0.1), fill=(0.1, 0.1, 0.1))
+        ai_page.insert_textbox(fitz.Rect(40, 55, 555, 80), "CLOSING FEATURE: LATEST IN AI", fontsize=16, fontname="helv", color=(0.85, 0.15, 0.15))
+        ai_page.insert_textbox(fitz.Rect(40, 82, 555, 100), "Curated Artificial Intelligence News & Research Summary", fontsize=10, fontname="helv", color=(0.4, 0.4, 0.4))
+        ai_page.draw_line(fitz.Point(40, 105), fitz.Point(555, 105), color=(0.8, 0.8, 0.8), width=1)
+
+        y_offset = 120
+        for idx, news in enumerate(ai_news[:5]):
+            if y_offset + 110 > 800:
+                ai_page = out_doc.new_page(width=595, height=842)
+                y_offset = 50
+
+            source_name = news.get("source_name", "SIET Tech News").upper()
+            pub_date = str(news.get("published_at", ""))[:10]
+            source_line = f"#{idx+1}  ·  {source_name}  ·  {pub_date}"
+            ai_page.insert_textbox(fitz.Rect(40, y_offset, 555, y_offset + 15), source_line, fontsize=9, fontname="helv", color=(0.7, 0.2, 0.2))
+            
+            title = news.get("title", "")
+            ai_page.insert_textbox(fitz.Rect(40, y_offset + 16, 555, y_offset + 42), title, fontsize=12, fontname="helv", color=(0.1, 0.1, 0.1))
+            
+            summary = news.get("simple_explanation", "")
+            if summary:
+                ai_page.insert_textbox(fitz.Rect(40, y_offset + 44, 555, y_offset + 85), summary, fontsize=9.5, fontname="helv", color=(0.3, 0.3, 0.3))
+
+            y_offset += 95
+            ai_page.draw_line(fitz.Point(40, y_offset - 8), fitz.Point(555, y_offset - 8), color=(0.9, 0.9, 0.9), width=0.5)
+
+    out_doc.save(target_path)
+    out_doc.close()
+    return target_path
+

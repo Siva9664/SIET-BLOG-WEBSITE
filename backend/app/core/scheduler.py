@@ -13,18 +13,18 @@ scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
 
 async def daily_morning_sync_and_archive():
     """
-    Scheduled job running every morning at 6:00 AM IST.
+    Scheduled job running every morning at 6:45 AM IST.
     1. Executes full news ingestion catch-up.
     2. Runs 90-day archiving job to mark old news articles as is_archived = True.
     3. Runs 90-day magazine rotation to set is_featured = False on old magazines.
     """
-    logger.info("[SCHEDULER] Triggering Daily Morning 6:00 AM IST Full Refresh & Archiving...")
+    logger.info("[SCHEDULER] Triggering Daily Morning 6:45 AM IST Full Refresh & Archiving...")
     try:
         await run_sync_pipeline(is_full_sync=True)
         archived_count = await archive_old_news()
         rotated_count = await rotate_magazine_featured()
         logger.info(
-            f"[SCHEDULER] Daily Morning 6:00 AM IST Job complete. "
+            f"[SCHEDULER] Daily Morning 6:45 AM IST Job complete. "
             f"Archived {archived_count} news articles. "
             f"Rotated {rotated_count} magazines out of featured."
         )
@@ -53,12 +53,12 @@ def start_scheduler():
         logger.info("[SCHEDULER] Scheduler is already running.")
         return
 
-    # Job 1: Daily Morning Full Refresh, News Archiving & Magazine Rotation at 6:00 AM IST
+    # Job 1: Daily Morning Full Refresh, News Archiving & Magazine Rotation at 6:45 AM IST
     scheduler.add_job(
         daily_morning_sync_and_archive,
-        trigger=CronTrigger(hour=6, minute=0, timezone="Asia/Kolkata"),
-        id="daily_morning_6am_refresh",
-        name="6:00 AM IST Full Sync, Archiving & Magazine Rotation",
+        trigger=CronTrigger(hour=6, minute=45, timezone="Asia/Kolkata"),
+        id="daily_morning_6_45am_refresh",
+        name="6:45 AM IST Full Sync, Archiving & Magazine Rotation",
         replace_existing=True,
     )
 
@@ -73,7 +73,7 @@ def start_scheduler():
 
     scheduler.start()
     logger.info("[SCHEDULER] APScheduler started successfully in Asia/Kolkata timezone.")
-    logger.info("[SCHEDULER] Job Registered: '6:00 AM IST Full Sync, Archiving & Magazine Rotation' (Cron: 06:00 IST)")
+    logger.info("[SCHEDULER] Job Registered: '6:45 AM IST Full Sync, Archiving & Magazine Rotation' (Cron: 06:45 IST)")
     logger.info("[SCHEDULER] Job Registered: '30-Minute Incremental News Sync' (Interval: 30 min)")
 
 

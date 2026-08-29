@@ -209,10 +209,13 @@ async def serialize_news(
     coverage_payload = [
         {
             "id": str(c.id),
+            "sourceName": c.source_name,
             "source_name": c.source_name,
             "title": c.title,
             "url": c.source_url,
+            "publishedAt": c.published_at.isoformat() if c.published_at else item.published_at.isoformat(),
             "published_at": c.published_at.isoformat() if c.published_at else item.published_at.isoformat(),
+            "isPrimary": c.is_primary,
             "is_primary": c.is_primary,
         }
         for c in coverage_records
@@ -245,7 +248,9 @@ async def serialize_news(
         "subcategory": item.subcategory or "General",
         "tags": item.tags_list or [item.department or "AI-ML"],
         "verification_status": verification_status,
+        "verificationStatus": verification_status,
         "coverage_count": coverage_count,
+        "coverageCount": coverage_count,
         "coverage": coverage_payload,
         "sourceUrl": getattr(item, "source_url", None) or "",
         "canonicalUrl": getattr(item, "canonical_url", None) or getattr(item, "source_url", None) or "",
@@ -342,6 +347,8 @@ async def serialize_magazine(
             for t in item.toc_entries
         ]
 
+    top_ai_news = await get_top_ai_news(db, limit=5)
+
     return {
         "id": str(item.id),
         "slug": item.slug,
@@ -358,6 +365,7 @@ async def serialize_magazine(
         "gallery": gallery,
         "pages": pages,
         "tocEntries": toc_entries,
+        "latestAiNews": top_ai_news,
         "issueDate": item.issue_date.isoformat() if getattr(item, "issue_date", None) else item.created_at.isoformat(),
         "projectLinks": [
             {"label": link.title, "url": link.url}
@@ -367,6 +375,38 @@ async def serialize_magazine(
         "liked": await is_liked(db, item.id, kind, current_user_id),
         "bookmarked": await is_bookmarked(db, item.id, kind, current_user_id),
     }
+
+
+async def get_top_ai_news(db: AsyncSession, limit: int = 5) -> list[dict[str, Any]]:
+    stmt = (
+        select(News)
+        .where(
+            or_(
+                News.department == "ai-ml",
+                News.department == "AI / ML",
+                News.department.ilike("%ai%"),
+            )
+        )
+        .order_by(News.coverage_count.desc(), News.published_at.desc().nullslast(), News.id.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+    out = []
+    for n in items:
+        out.append({
+            "id": str(n.id),
+            "slug": n.slug,
+            "title": n.title,
+            "published_at": (n.published_at or n.created_at).isoformat(),
+            "source_name": n.source_name or "SIET Tech News",
+            "department": n.department or "ai-ml",
+            "simple_explanation": n.simple_explanation or n.excerpt or (n.content[:160] if n.content else ""),
+            "image_url": n.image_url or "",
+            "coverage_count": n.coverage_count or 1,
+        })
+    return out
+
 
 
 def serialize_domain(item: Domain, count: int = 0) -> dict[str, Any]:

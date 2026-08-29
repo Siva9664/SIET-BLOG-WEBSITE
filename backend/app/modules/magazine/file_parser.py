@@ -192,3 +192,92 @@ def parse_event_file(file_bytes: bytes, filename: str) -> dict:
         "detected_event_date": detected_date,
         "extracted_images": images,
     }
+
+
+def map_heading_to_section_type(heading: str) -> tuple[str, str]:
+    """Maps a heading string to (section_type, label)."""
+    h_lower = heading.lower().strip()
+    
+    if any(k in h_lower for k in ["cover", "title", "header"]):
+        return "cover", heading
+    elif any(k in h_lower for k in ["note", "editor", "editorial", "overview", "preface"]):
+        return "editors_note", heading
+    elif any(k in h_lower for k in ["feature", "research", "writeup", "article", "main story"]):
+        return "featured_story", heading
+    elif any(k in h_lower for k in ["event", "roundup", "proceedings", "highlight", "session"]):
+        return "events_roundup", heading
+    elif any(k in h_lower for k in ["achievement", "award", "project", "winner", "honor"]):
+        return "achievements", heading
+    elif any(k in h_lower for k in ["gallery", "photo", "image", "picture"]):
+        return "gallery", heading
+    elif any(k in h_lower for k in ["ai", "news", "closing", "digest", "trend"]):
+        return "closing_ai_news", heading
+    
+    clean_type = re.sub(r"[^\w]+", "_", h_lower).strip("_")
+    return clean_type or "custom_section", heading
+
+
+def parse_template_file(file_bytes: bytes, filename: str) -> dict:
+    """
+    Parses an uploaded template file (.docx, .pdf, .txt) into section_schema and style_rules.
+    Identifies headings as section boundaries and maps each to a section_type.
+    """
+    from app.modules.magazine.models import DEFAULT_SECTION_SCHEMA, DEFAULT_STYLE_RULES
+
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in (".docx", ".doc"):
+        text, _ = parse_docx(file_bytes)
+    elif ext == ".pdf":
+        text, _ = parse_pdf(file_bytes)
+    else:
+        text, _ = parse_txt(file_bytes)
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    headings = []
+
+    for line in lines:
+        cleaned = re.sub(r"^[#\*\-\s]+", "", line).strip()
+        if not cleaned:
+            continue
+        if line.startswith("#") or (len(cleaned) < 60 and (cleaned.isupper() or cleaned.endswith(":"))):
+            headings.append(cleaned.rstrip(":"))
+
+    detected_schema = []
+    seen_types = set()
+
+    for h in headings:
+        sec_type, label = map_heading_to_section_type(h)
+        if sec_type not in seen_types:
+            seen_types.add(sec_type)
+            detected_schema.append({
+                "section_type": sec_type,
+                "label": label,
+                "enabled": True,
+                "layout_rules": {"columns": 1 if sec_type in ("editors_note", "cover") else 2}
+            })
+
+    if not detected_schema:
+        detected_schema = [dict(s) for s in DEFAULT_SECTION_SCHEMA]
+    else:
+        if "cover" not in seen_types:
+            detected_schema.insert(0, dict(DEFAULT_SECTION_SCHEMA[0]))
+        if "closing_ai_news" not in seen_types:
+            detected_schema.append(dict(DEFAULT_SECTION_SCHEMA[-1]))
+
+    style_rules = dict(DEFAULT_STYLE_RULES)
+    if "dark" in text.lower():
+        style_rules["background_color"] = "#1A1A1A"
+        style_rules["text_color"] = "#F5F5F5"
+    if "serif" in text.lower():
+        style_rules["font_display"] = "Playfair Display"
+    elif "sans" in text.lower():
+        style_rules["font_display"] = "Inter"
+
+    template_name = os.path.splitext(filename)[0].replace("_", " ").replace("-", " ").title()
+
+    return {
+        "name": template_name or "Uploaded Magazine Template",
+        "section_schema": detected_schema,
+        "style_rules": style_rules,
+    }
+

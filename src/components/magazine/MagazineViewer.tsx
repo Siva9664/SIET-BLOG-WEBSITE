@@ -2,11 +2,14 @@
 
 import * as React from "react";
 import { useState, useEffect } from "react";
+import { api } from "@/lib/api";
 import type { MagazineIssue } from "@/lib/types";
 
 export function MagazineViewer({ issue }: { issue: MagazineIssue }) {
   const [currentPageNum, setCurrentPageNum] = useState(1);
   const [showAccessibleText, setShowAccessibleText] = useState(false);
+
+  const downloadUrl = api.magDownloadUrl(issue.slug);
 
   const pages = issue.pages || [];
   const tocEntries = issue.tocEntries || [];
@@ -92,16 +95,14 @@ export function MagazineViewer({ issue }: { issue: MagazineIssue }) {
             {showAccessibleText ? "Hide Plain Text" : "Show Page Text"}
           </button>
 
-          {issue.pdfUrl && (
-            <a
-              href={issue.pdfUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent border border-ink px-3 py-1.5 transition-colors"
-            >
-              Download PDF ↗
-            </a>
-          )}
+          <a
+            href={downloadUrl}
+            download={`${issue.slug}.pdf`}
+            className="font-util text-eyebrow uppercase tracking-wider text-paper bg-ink hover:bg-accent border border-ink px-3 py-1.5 transition-colors cursor-pointer flex items-center gap-1.5"
+          >
+            <span>Download Issue</span>
+            <span>↓</span>
+          </a>
         </div>
       </div>
 
