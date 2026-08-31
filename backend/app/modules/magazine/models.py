@@ -1,7 +1,7 @@
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
+from typing import List, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base, BaseModelMixin
@@ -153,4 +153,51 @@ class MagazineTemplate(Base, BaseModelMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     section_schema: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     style_rules: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    versions: Mapped[List["TemplateVersion"]] = relationship("TemplateVersion", back_populates="template", cascade="all, delete-orphan")
+
+
+class TemplateVersion(Base, BaseModelMixin):
+    __tablename__ = "template_versions"
+
+    template_id: Mapped[int] = mapped_column(ForeignKey("magazine_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    version_number: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    template: Mapped["MagazineTemplate"] = relationship("MagazineTemplate", back_populates="versions")
+    pages: Mapped[List["TemplatePage"]] = relationship("TemplatePage", back_populates="version", cascade="all, delete-orphan")
+
+
+class TemplatePage(Base, BaseModelMixin):
+    __tablename__ = "template_pages"
+
+    version_id: Mapped[int] = mapped_column(ForeignKey("template_versions.id", ondelete="CASCADE"), nullable=False, index=True)
+    page_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    width_pt: Mapped[float] = mapped_column(Float, default=595.28, nullable=False)  # A4 width in pt
+    height_pt: Mapped[float] = mapped_column(Float, default=841.89, nullable=False) # A4 height in pt
+    margin_top: Mapped[float] = mapped_column(Float, default=36.0, nullable=False)
+    margin_bottom: Mapped[float] = mapped_column(Float, default=36.0, nullable=False)
+    margin_left: Mapped[float] = mapped_column(Float, default=36.0, nullable=False)
+    margin_right: Mapped[float] = mapped_column(Float, default=36.0, nullable=False)
+
+    version: Mapped["TemplateVersion"] = relationship("TemplateVersion", back_populates="pages")
+    regions: Mapped[List["TemplateRegion"]] = relationship("TemplateRegion", back_populates="page", cascade="all, delete-orphan")
+
+
+class TemplateRegion(Base, BaseModelMixin):
+    __tablename__ = "template_regions"
+
+    page_id: Mapped[int] = mapped_column(ForeignKey("template_pages.id", ondelete="CASCADE"), nullable=False, index=True)
+    region_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    x_pt: Mapped[float] = mapped_column(Float, nullable=False)
+    y_pt: Mapped[float] = mapped_column(Float, nullable=False)
+    width_pt: Mapped[float] = mapped_column(Float, nullable=False)
+    height_pt: Mapped[float] = mapped_column(Float, nullable=False)
+    role: Mapped[str] = mapped_column(String(50), default="feature", nullable=False)  # hero | feature | card | caption | header | footer | sidebar
+    typography: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    color_palette: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    page: Mapped["TemplatePage"] = relationship("TemplatePage", back_populates="regions")
+
 

@@ -200,36 +200,31 @@ Only return valid JSON, no extra text."""
         except Exception as e:
             logger.warning(f"Failed to parse LLM JSON output: {e}. Using rule fallback.")
 
-    # Rule-Based High-Quality Fallback Generator
-    clean_notes = raw_notes.strip().replace("\n", ", ")
+    # Rule-Based High-Quality Fallback Generator with Digest Word Budgets
     date_str = f" held on {event_date}" if event_date else ""
     event_str = event_name if event_name else "Campus Event"
 
     title_prefix = "" if event_str.lower().startswith("siet") else "SIET "
     title_gen = f"{title_prefix}{event_str}: Special Digest 2026"
     desc_gen = (
-        f"Sri Shakthi Institute of Engineering & Technology proudly presented {event_str}{date_str}, "
-        f"bringing together aspiring student researchers, faculty experts, and industry mentors. "
-        f"Key proceedings included: {clean_notes if clean_notes else 'interactive demonstrations and technical discussions'}. "
-        f"This magazine edition documents student research achievements and technological innovations."
+        f"Sri Shakthi Institute of Engineering & Technology presented {event_str}{date_str}, "
+        f"bringing together student researchers, faculty experts, and industry mentors to showcase innovations."
     )
 
     writeup_headline = f"Innovation & Excellence: Key Moments from {event_str}"
     notes_paragraphs = [p.strip() for p in raw_notes.split("\n") if p.strip()]
+    first_note = notes_paragraphs[0] if notes_paragraphs else "Interactive technical demonstrations."
+    writeup_text_raw = f"{writeup_headline}\n\n{first_note}"
 
-    writeup_html = f"""<article class="prose max-w-none space-y-4 font-sans text-ink">
-  <h2 className="text-xl font-bold text-accent border-b border-line pb-2">{writeup_headline}</h2>
-  <p className="text-sm leading-relaxed text-ink font-medium">
-    The campus of Sri Shakthi Institute of Engineering & Technology served as a vibrant hub of technological discovery during {event_str}. Bringing together student innovators and domain leaders, the event showcased significant advancements in engineering discipline.
-  </p>
-  <h3 className="text-base font-bold text-ink border-l-2 border-accent pl-3">Technical Demonstrations & Keynote Addresses</h3>
-  <p className="text-sm leading-relaxed text-ink-soft">
-    {" ".join(notes_paragraphs[:2]) if notes_paragraphs else "Distinguished speakers and student teams demonstrated cutting-edge prototypes, reflecting the institution's commitment to practical engineering education."}
-  </p>
-  <h3 className="text-base font-bold text-ink border-l-2 border-accent pl-3">Research Impact & Student Recognition</h3>
-  <p className="text-sm leading-relaxed text-ink-soft">
-    {" ".join(notes_paragraphs[2:]) if len(notes_paragraphs) > 2 else "Evaluation committees praised the technical rigor and real-world applicability of the presented solutions across all participating streams."}
-  </p>
+    title_clean = await _enforce_word_budget_with_retry("magazine_issue_title", title_gen, max_words=12)
+    desc_clean = await _enforce_word_budget_with_retry("description", desc_gen, max_words=40)
+    headline_clean = await _enforce_word_budget_with_retry("writeup_headline", writeup_headline, max_words=12)
+    writeup_clean = await _enforce_word_budget_with_retry("writeup_text", writeup_text_raw, max_words=60)
+    toc_clean = await _enforce_word_budget_with_retry("toc_summary", f"Special issue covering {event_str}.", max_words=15)
+
+    writeup_html = f"""<article class="prose max-w-none space-y-2 font-sans text-ink">
+  <h2 className="text-lg font-bold text-accent border-b border-line pb-1">{headline_clean}</h2>
+  <p className="text-sm leading-relaxed text-ink-soft mb-2">{writeup_clean}</p>
 </article>"""
 
     fallback_captions = []
@@ -241,19 +236,191 @@ Only return valid JSON, no extra text."""
         "Group photograph of event organizers and participants.",
     ]
     for i in range(max(photo_count, 1)):
-        fallback_captions.append(defaults[i % len(defaults)])
-
-    toc_gen = f"Special issue covering {event_str} and student research achievements."
+        cap_text = defaults[i % len(defaults)]
+        fallback_captions.append(await _enforce_word_budget_with_retry(f"caption_{i+1}", cap_text, max_words=15))
 
     return {
-        "magazine_issue_title": title_gen,
-        "description": desc_gen,
-        "writeup_headline": writeup_headline,
+        "magazine_issue_title": title_clean,
+        "description": desc_clean,
+        "writeup_headline": headline_clean,
         "writeup_html": writeup_html,
-        "writeup_text": writeup_headline + "\n\n" + raw_notes,
+        "writeup_text": writeup_clean,
         "captions": fallback_captions,
-        "toc_summary": toc_gen,
+        "toc_summary": toc_clean,
+        "sources": [],
+        "overall_confidence_band": "do_not_auto_publish",
     }
+
+
+async def _enforce_word_budget_with_retry(field_name: str, text: str, max_words: int) -> str:
+    """Measures actual word count of generated fields and re-prompts LLM if budget is exceeded by >20%."""
+    if not text or not text.strip():
+        return text
+
+    words = text.strip().split()
+    if len(words) <= int(max_words * 1.2):
+        return text
+
+    logger.warning(
+        f"[Word Budget] Field '{field_name}' ({len(words)} words) exceeded budget ({max_words} words). Retrying shortening pass."
+    )
+
+    retry_prompt = f"""Shorten the following magazine text to strictly under {max_words} words for a digest blurb. Do NOT alter facts.
+Text to shorten:
+{text}
+
+Return ONLY the shortened text, no formatting, no extra explanation."""
+
+    shortened = await _call_llm(retry_prompt)
+    if shortened and shortened.strip():
+        return shortened.strip()
+
+    # Truncate fallback if LLM is offline
+    return " ".join(words[:max_words]) + "..."
+
+
+async def generate_grounded_magazine_content(
+    event_name: str,
+    event_date: str,
+    raw_notes: str,
+    photo_count: int = 0,
+    document_ids: Optional[List[int]] = None,
+    db: Optional[AsyncSession] = None,
+) -> Dict[str, Any]:
+    """
+    RAG-Grounded Magazine Content Generator.
+    Retrieves source passages from Phase 1/2 Document Intelligence, injects them as factual grounding,
+    enforces strict role word budgets (short digest style), and returns generated sections with attached provenance and confidence bands.
+    """
+    from app.modules.documents.reranker import rerank
+    from app.modules.documents.retriever import retrieve
+
+    query = f"{event_name} {raw_notes}".strip()
+    sources: List[Dict[str, Any]] = []
+    grounding_text_block = ""
+    max_score = 0.0
+
+    if db:
+        filters = {}
+        if document_ids and len(document_ids) == 1:
+            filters["document_id"] = document_ids[0]
+
+        try:
+            raw_candidates = await retrieve(db=db, query=query, top_k=15, filters=filters if filters else None)
+            if raw_candidates:
+                reranked_candidates = await rerank(query=query, candidates=raw_candidates, top_n=5)
+                sources = reranked_candidates
+
+                grounding_lines = []
+                for idx, src in enumerate(sources, 1):
+                    max_score = max(max_score, src.get("score", 0.0))
+                    grounding_lines.append(
+                        f"[Source {idx}: {src['filename']} Page {src['page_number']} ({src['section_label']})] (Score: {src['score']})\n"
+                        f"{src['text']}\n"
+                    )
+                grounding_text_block = "\n".join(grounding_lines)
+        except Exception as e:
+            logger.warning(f"RAG retrieval during grounded generation encountered error: {e}")
+
+    # Fallback to standard flow if no grounding passages found
+    if not grounding_text_block:
+        res = await generate_full_magazine_content(event_name, event_date, raw_notes, photo_count, db)
+        res["sources"] = []
+        res["overall_confidence_band"] = "do_not_auto_publish"
+        return res
+
+    # Grounded LLM Prompting with Digest Word Budgets
+    tmpl = await get_active_template(db)
+    style_rules_str = json.dumps(tmpl.get("style_rules", {}), indent=2)
+
+    prompt = f"""You are an elite editorial writer for SIET News & Magazines.
+Your task is to generate short digest-style magazine content grounded STRICTLY in the provided SOURCE PASSAGES.
+Do NOT write long articles. Follow the strict word budgets below.
+
+=== FACTUAL SOURCE PASSAGES (Ground Truth) ===
+{grounding_text_block}
+
+=== ADDITIONAL USER NOTES ===
+Event Name: {event_name}
+Event Date: {event_date}
+Raw Notes: {raw_notes}
+
+=== DIGEST WORD BUDGET CONSTRAINTS ===
+- magazine_issue_title: 6–12 words max
+- description: 25–40 words max (short overview)
+- writeup: 30–60 words max (2-3 sentence digest blurb, NOT a full article)
+- captions: 8–15 words max per caption
+- toc_summary: 10–15 words max
+
+Return the output ONLY as valid JSON in this exact structure:
+{{
+  "magazine_issue_title": "short catchy title for this issue",
+  "description": "25-40 word event overview grounded in sources",
+  "writeup": "30-60 word digest blurb with headline grounded in sources",
+  "captions": ["one short caption per photo"],
+  "toc_summary": "10-15 word line summarizing the issue"
+}}
+
+Only return valid JSON, no extra text."""
+
+    llm_output = await _call_llm(prompt)
+
+    if llm_output:
+        clean_json = re.sub(r"^```(json)?", "", llm_output.strip(), flags=re.IGNORECASE)
+        clean_json = re.sub(r"```$", "", clean_json.strip()).strip()
+        try:
+            parsed = json.loads(clean_json)
+            writeup_raw = parsed.get("writeup", "")
+            headline = f"Highlights from {event_name}"
+            lines = [l.strip() for l in writeup_raw.split("\n") if l.strip()]
+            if lines:
+                if lines[0].startswith("#"):
+                    headline = lines[0].replace("#", "").strip()
+                elif len(lines[0]) < 80:
+                    headline = lines[0]
+
+            # Enforce Word Budgets with Retries
+            title_gen = await _enforce_word_budget_with_retry("magazine_issue_title", parsed.get("magazine_issue_title", f"{event_name} Special Edition"), max_words=12)
+            desc_gen = await _enforce_word_budget_with_retry("description", parsed.get("description", f"Highlights from {event_name}."), max_words=40)
+            headline_gen = await _enforce_word_budget_with_retry("writeup_headline", headline, max_words=12)
+            writeup_gen = await _enforce_word_budget_with_retry("writeup_text", writeup_raw, max_words=60)
+            toc_gen = await _enforce_word_budget_with_retry("toc_summary", parsed.get("toc_summary", f"Coverage of {event_name}."), max_words=15)
+
+            raw_caps = parsed.get("captions", [])
+            shortened_caps = []
+            for idx, cap in enumerate(raw_caps):
+                shortened_caps.append(await _enforce_word_budget_with_retry(f"caption_{idx+1}", cap, max_words=15))
+
+            formatted_paragraphs = []
+            for line in writeup_gen.split("\n"):
+                if line.strip():
+                    formatted_paragraphs.append(f'<p class="text-sm leading-relaxed text-ink-soft mb-2">{line.strip()}</p>')
+
+            writeup_html = f'<article class="prose max-w-none space-y-2 font-sans text-ink"><h2 class="text-lg font-bold text-accent border-b border-line pb-1">{headline_gen}</h2>' + "".join(formatted_paragraphs) + '</article>'
+
+            from app.modules.documents.provenance import confidence_band
+            overall_band = confidence_band(max_score)
+
+            return {
+                "magazine_issue_title": title_gen,
+                "description": desc_gen,
+                "writeup_headline": headline_gen,
+                "writeup_html": writeup_html,
+                "writeup_text": writeup_gen,
+                "captions": shortened_caps,
+                "toc_summary": toc_gen,
+                "sources": sources,
+                "overall_confidence_band": overall_band,
+            }
+        except Exception as e:
+            logger.warning(f"Failed to parse Grounded LLM JSON output: {e}")
+
+    # Default fallback
+    res = await generate_full_magazine_content(event_name, event_date, raw_notes, photo_count, db)
+    from app.modules.documents.provenance import confidence_band
+    res["sources"] = sources
+    res["overall_confidence_band"] = confidence_band(max_score)
+    return res
 
 
 # ─── INDIVIDUAL ASSISTANCE FUNCTIONS ─────────────────────────────────────────

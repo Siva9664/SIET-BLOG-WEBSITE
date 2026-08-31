@@ -8,6 +8,7 @@ from app.modules.analytics.router import router as analytics_router
 from app.modules.articles.router import router as articles_router
 from app.modules.auth.router import router as auth_router
 from app.modules.contact.router import router as contact_router
+from app.modules.documents.router import router as documents_router
 from app.modules.domains.router import router as domains_router
 from app.modules.engagement.router import router as engagement_router
 from app.modules.health.router import router as health_router
@@ -19,6 +20,7 @@ from app.modules.news.router import router as news_router
 from app.modules.search.router import router as search_router
 from app.modules.settings.router import router as settings_router
 from app.modules.tags.router import router as tags_router
+from app.modules.template_engine.router import template_router
 from app.shared.exceptions.handlers import register_exception_handlers
 from app.shared.middleware.audit import AuditMiddleware
 from app.shared.middleware.auth import AuthenticationMiddleware
@@ -85,8 +87,10 @@ app.include_router(news_router, prefix=settings.API_PREFIX)
 app.include_router(articles_router, prefix=settings.API_PREFIX)
 app.include_router(magazine_router, prefix=settings.API_PREFIX)
 app.include_router(admin_magazine_router, prefix=settings.API_PREFIX)
+app.include_router(documents_router, prefix=settings.API_PREFIX)
 app.include_router(engagement_router, prefix=settings.API_PREFIX)
 app.include_router(analytics_router, prefix=settings.API_PREFIX)
 app.include_router(search_router, prefix=settings.API_PREFIX)
 app.include_router(contact_router, prefix=settings.API_PREFIX)
 app.include_router(settings_router, prefix=settings.API_PREFIX)
+app.include_router(template_router, prefix=settings.API_PREFIX)

@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
+from app.core.logging import logger
 from app.shared.responses.helpers import success
 from app.modules.contract_helpers import (
     get_media_map, get_top_ai_news, normalize_limit, normalize_page,
@@ -47,11 +48,16 @@ from app.modules.engagement.router import (
 )
 from app.modules.magazine.models import (
     Magazine, MagazinePage, MagazineTOCEntry,
-    MagazineTemplate, DEFAULT_SECTION_SCHEMA, DEFAULT_STYLE_RULES,
+    MagazineTemplate, TemplateVersion, TemplatePage, TemplateRegion,
+    DEFAULT_SECTION_SCHEMA, DEFAULT_STYLE_RULES,
 )
+from app.modules.magazine.visual_analyzer import analyze_template_pdf_visual_blueprint
+from app.modules.magazine.renderer import render_magazine_pdf_from_blueprint
+from app.modules.magazine.validator import validate_rendered_magazine
 from app.modules.magazine.pipeline import compile_magazine_pdf, process_magazine_pdf
 from app.modules.magazine.ai_service import (
     generate_full_magazine_content,
+    generate_grounded_magazine_content,
     generate_event_overview,
     generate_writeup_article,
     generate_gallery_captions,
@@ -476,14 +482,141 @@ async def api_upload_magazine_template(
     await db.commit()
     await db.refresh(tmpl)
 
+    # Visual Blueprint Analysis for PDF templates
+    ext = os.path.splitext(file.filename)[1].lower()
+    version_id = None
+    if ext == ".pdf":
+        try:
+            blueprint = analyze_template_pdf_visual_blueprint(contents, file.filename)
+
+            # Create new TemplateVersion
+            version_stmt = select(func.coalesce(func.max(TemplateVersion.version_number), 0)).where(TemplateVersion.template_id == tmpl.id)
+            max_ver = (await db.execute(version_stmt)).scalar() or 0
+
+            # Deactivate previous versions
+            old_vers = list((await db.execute(select(TemplateVersion).where(TemplateVersion.template_id == tmpl.id))).scalars().all())
+            for ov in old_vers:
+                ov.is_active = False
+
+            ver_record = TemplateVersion(
+                template_id=tmpl.id,
+                version_number=max_ver + 1,
+                is_active=True,
+            )
+            db.add(ver_record)
+            await db.commit()
+            await db.refresh(ver_record)
+            version_id = ver_record.id
+
+            for p_data in blueprint["pages"]:
+                page_record = TemplatePage(
+                    version_id=ver_record.id,
+                    page_number=p_data["page_number"],
+                    width_pt=p_data["width_pt"],
+                    height_pt=p_data["height_pt"],
+                    margin_top=p_data["margin_top"],
+                    margin_bottom=p_data["margin_bottom"],
+                    margin_left=p_data["margin_left"],
+                    margin_right=p_data["margin_right"],
+                )
+                db.add(page_record)
+                await db.commit()
+                await db.refresh(page_record)
+
+                for r_data in p_data["regions"]:
+                    reg_record = TemplateRegion(
+                        page_id=page_record.id,
+                        region_key=r_data["region_key"],
+                        x_pt=r_data["x_pt"],
+                        y_pt=r_data["y_pt"],
+                        width_pt=r_data["width_pt"],
+                        height_pt=r_data["height_pt"],
+                        role=r_data["role"],
+                        typography=r_data.get("typography"),
+                        color_palette=r_data.get("color_palette"),
+                    )
+                    db.add(reg_record)
+                await db.commit()
+        except Exception as e:
+            logger.warning(f"Visual template blueprint extraction warning: {e}")
+
     return success({
         "id": tmpl.id,
         "name": tmpl.name,
         "is_active": tmpl.is_active,
         "section_schema": tmpl.section_schema,
         "style_rules": tmpl.style_rules,
+        "active_version_id": version_id,
         "updated_at": tmpl.updated_at.isoformat() if tmpl.updated_at else None,
     })
+
+
+@admin_router.get("/templates/{template_id}/blueprint")
+async def get_template_blueprint(
+    template_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    """
+    Phase 4 Visual Template Blueprint Inspection Endpoint:
+    Returns stored visual blueprint hierarchy including page dimensions, margins, and region coordinates.
+    """
+    tmpl = await db.get(MagazineTemplate, template_id)
+    if not tmpl:
+        raise NotFoundException(f"Magazine template #{template_id} not found.")
+
+    version_stmt = (
+        select(TemplateVersion)
+        .where(TemplateVersion.template_id == template_id, TemplateVersion.is_active == True)
+        .options(selectinload(TemplateVersion.pages).selectinload(TemplatePage.regions))
+    )
+    active_ver = (await db.execute(version_stmt)).scalars().first()
+    if not active_ver:
+        return success({
+            "template_id": tmpl.id,
+            "name": tmpl.name,
+            "has_visual_blueprint": False,
+            "pages": [],
+        })
+
+    pages_out = []
+    for page in active_ver.pages:
+        regions_out = [
+            {
+                "id": r.id,
+                "region_key": r.region_key,
+                "x_pt": r.x_pt,
+                "y_pt": r.y_pt,
+                "width_pt": r.width_pt,
+                "height_pt": r.height_pt,
+                "role": r.role,
+                "typography": r.typography,
+                "color_palette": r.color_palette,
+            }
+            for r in page.regions
+        ]
+        pages_out.append({
+            "id": page.id,
+            "page_number": page.page_number,
+            "width_pt": page.width_pt,
+            "height_pt": page.height_pt,
+            "margins": {
+                "top": page.margin_top,
+                "bottom": page.margin_bottom,
+                "left": page.margin_left,
+                "right": page.margin_right,
+            },
+            "regions": regions_out,
+        })
+
+    return success({
+        "template_id": tmpl.id,
+        "name": tmpl.name,
+        "version_number": active_ver.version_number,
+        "has_visual_blueprint": True,
+        "pages": pages_out,
+    })
+
 
 
 @admin_router.post("/{magazine_id}/cover")
@@ -867,16 +1000,208 @@ async def api_generate_captions(
     return success({"captions": captions})
 
 
-@admin_router.post("/ai/generate-toc")
-async def api_generate_toc(
-    payload: AITocRequest,
+class AIGroundedRequest(BaseModel):
+    event_name: str = ""
+    event_date: str = ""
+    raw_notes: str
+    photo_count: int = 0
+    document_ids: list[int] | None = None
+
+
+@admin_router.post("/ai/generate-grounded")
+async def api_generate_grounded(
+    payload: AIGroundedRequest,
+    db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin),
 ):
-    toc_summary = await generate_toc_entry(
-        title=payload.title,
-        description=payload.description,
+    """
+    Phase 3 Grounded LLM Content Generation Endpoint:
+    Pulls RAG source passages from Document Intelligence, injects them as ground truth facts,
+    and returns generated magazine content annotated with real sources and confidence bands.
+    """
+    res = await generate_grounded_magazine_content(
+        event_name=payload.event_name,
+        event_date=payload.event_date,
+        raw_notes=payload.raw_notes,
+        photo_count=payload.photo_count,
+        document_ids=payload.document_ids,
+        db=db,
     )
-    return success({"toc_summary": toc_summary})
+    return success(res)
+
+
+class RenderFromBlueprintRequest(BaseModel):
+    template_id: int = 1
+    event_name: str = "SIET Campus Innovation Digest"
+    event_date: str = ""
+    raw_notes: str
+    document_ids: list[int] | None = None
+
+
+@admin_router.post("/render-from-blueprint")
+async def api_render_from_blueprint(
+    payload: RenderFromBlueprintRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    """
+    Phase 5 & 6 End-to-End Master Endpoint:
+    1. Executes Grounded LLM Content Generation with source provenance.
+    2. Fetches active TemplateVersion & Visual Blueprint.
+    3. Renders PDF strictly into region coordinates with font scaling.
+    4. Runs Layout & Content Grounding Validation.
+    """
+    # 1. Grounded Generation
+    grounded_content = await generate_grounded_magazine_content(
+        event_name=payload.event_name,
+        event_date=payload.event_date,
+        raw_notes=payload.raw_notes,
+        document_ids=payload.document_ids,
+        db=db,
+    )
+
+    # 2. Fetch Blueprint
+    bp_res = await get_template_blueprint(template_id=payload.template_id, db=db, current_user=current_user)
+    blueprint = bp_res.data if hasattr(bp_res, "data") else (bp_res.get("data", {}) if isinstance(bp_res, dict) else {})
+
+    # 3. Deterministic Coordinate PDF Rendering
+    pdf_filename = f"rendered_issue_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}.pdf"
+    output_pdf_path = os.path.join(UPLOAD_DIR, pdf_filename)
+
+    render_result = render_magazine_pdf_from_blueprint(
+        blueprint=blueprint,
+        content=grounded_content,
+        output_pdf_path=output_pdf_path,
+    )
+
+    # 4. Post-Render Quality Validation
+    validation_report = validate_rendered_magazine(
+        pdf_path=output_pdf_path,
+        page_previews=render_result["page_previews"],
+        content=grounded_content,
+        blueprint=blueprint,
+    )
+
+class AutoGenerateRequest(BaseModel):
+    document_ids: list[int]
+    template_id: int | None = None
+    event_name: str | None = "SIET Engineering & Innovation Issue"
+    event_date: str | None = "2026 Edition"
+
+
+@admin_router.post("/auto-generate")
+async def api_auto_generate_magazine(
+    payload: AutoGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    """
+    Single-Call Automatic Magazine Generation Pipeline:
+    1. Loads source document chunks for document_ids.
+    2. Runs hybrid RAG retrieval per template section role.
+    3. Generates grounded short digest-style content with word budgets & LLM retry shortening.
+    4. Enforces confidence bands: Flags low-confidence sections instead of silently publishing hallucinations.
+    5. Composes output document via DOCX Blueprint Composer / PDF Renderer.
+    6. Verifies zero template text leakage via regression test assertion.
+    """
+    from app.modules.documents.models import DocumentChunk, SourceDocument
+    from app.modules.template_engine.analyzer import analyze_docx_template
+    from app.modules.template_engine.composer import generate_docx_from_blueprint
+    from app.modules.template_engine.models import DocxTemplateBlueprint
+    from app.modules.template_engine.test_leakage import verify_no_template_leakage
+
+    if not payload.document_ids:
+        raise HTTPException(status_code=400, detail="At least one document_id is required.")
+
+    # 1. Fetch Source Documents & Chunks
+    stmt = select(SourceDocument).where(SourceDocument.id.in_(payload.document_ids))
+    docs_res = await db.execute(stmt)
+    source_docs = docs_res.scalars().all()
+    if not source_docs:
+        raise HTTPException(status_code=404, detail=f"No source documents found for IDs: {payload.document_ids}")
+
+    chunk_stmt = select(DocumentChunk).where(DocumentChunk.document_id.in_(payload.document_ids))
+    chunks_res = await db.execute(chunk_stmt)
+    chunks = chunks_res.scalars().all()
+
+    combined_notes = "\n".join([c.text for c in chunks[:10]]) if chunks else "SIET engineering event proceedings."
+
+    # 2. Template Selection (Default to Active / Blueprint)
+    template_bytes = b""
+    siet_tmpl_path = "/home/shiva/Downloads/SIET-Magazine-Template.docx"
+
+    if payload.template_id:
+        record = await db.get(DocxTemplateBlueprint, payload.template_id)
+        if record:
+            blueprint = record.blueprint_json
+        else:
+            blueprint = None
+    else:
+        # Fallback to latest registered blueprint or analyze SIET template directly
+        stmt_bp = select(DocxTemplateBlueprint).order_by(DocxTemplateBlueprint.id.desc()).limit(1)
+        res_bp = await db.execute(stmt_bp)
+        record = res_bp.scalars().first()
+        blueprint = record.blueprint_json if record else None
+
+    if os.path.exists(siet_tmpl_path):
+        with open(siet_tmpl_path, "rb") as f:
+            template_bytes = f.read()
+
+    if not blueprint and template_bytes:
+        blueprint = analyze_docx_template(template_bytes, "SIET-Magazine-Template.docx")
+
+    if not blueprint:
+        raise HTTPException(status_code=400, detail="No active DOCX template blueprint found.")
+
+    # 3. Grounded Short Content Generation
+    grounded_content = await generate_grounded_magazine_content(
+        event_name=payload.event_name or "SIET Tech Digest",
+        event_date=payload.event_date or "2026 Edition",
+        raw_notes=combined_notes,
+        photo_count=2,
+        document_ids=payload.document_ids,
+        db=db,
+    )
+
+    # 4. Confidence Band Enforcement & Section Flagging
+    flagged_sections = []
+    confidence_band = grounded_content.get("overall_confidence_band", "low_confidence")
+
+    if confidence_band == "do_not_auto_publish":
+        flagged_sections.append("article_body (Low Confidence: Flagged for manual editorial review)")
+        grounded_content["writeup_text"] = "[FLAGGED FOR REVIEW: Confidence below publication threshold]"
+
+    # 5. Compose Output Document
+    output_docx_bytes = generate_docx_from_blueprint(
+        blueprint=blueprint,
+        content=grounded_content,
+        template_bytes=template_bytes,
+    )
+
+    docx_filename = f"auto_generated_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}.docx"
+    output_path = os.path.join("uploads/magazines", docx_filename)
+    os.makedirs("uploads/magazines", exist_ok=True)
+    with open(output_path, "wb") as f:
+        f.write(output_docx_bytes)
+
+    # 6. Template Leakage Assertion
+    is_clean, leaked_phrases = verify_no_template_leakage(output_docx_bytes, template_bytes)
+    leakage_status = "PASSED" if is_clean else f"FAILED ({len(leaked_phrases)} phrases leaked)"
+
+    return success({
+        "generated_file_url": f"/{output_path}",
+        "issue_title": grounded_content.get("magazine_issue_title"),
+        "description": grounded_content.get("description"),
+        "writeup_headline": grounded_content.get("writeup_headline"),
+        "writeup_text": grounded_content.get("writeup_text"),
+        "overall_confidence_band": confidence_band,
+        "flagged_sections": flagged_sections,
+        "provenance": grounded_content.get("sources", []),
+        "template_leakage_check": leakage_status,
+    })
+
+
+
 
 
 
