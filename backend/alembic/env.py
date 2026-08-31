@@ -24,6 +24,9 @@ from app.modules.articles.models import Article
 from app.modules.magazine.models import Magazine, MagazineAchievement, MagazineProjectLink
 from app.modules.engagement.models import Like, Bookmark
 from app.modules.analytics.models import PageView, TrendingMetric
+from app.modules.documents.models import SourceDocument, DocumentChunk
+from app.modules.template_engine.models import DocxTemplateBlueprint
+
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

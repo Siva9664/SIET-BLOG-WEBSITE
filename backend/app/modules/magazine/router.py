@@ -388,6 +388,7 @@ class TemplateUpdateSchema(BaseModel):
     name: str | None = None
     section_schema: list[dict]
     style_rules: dict
+    example_outputs: dict | None = None
 
 
 @admin_router.get("/template")
@@ -403,6 +404,7 @@ async def api_get_magazine_template(
             is_active=True,
             section_schema=DEFAULT_SECTION_SCHEMA,
             style_rules=DEFAULT_STYLE_RULES,
+            example_outputs={},
         )
         db.add(tmpl)
         await db.commit()
@@ -414,6 +416,7 @@ async def api_get_magazine_template(
         "is_active": tmpl.is_active,
         "section_schema": tmpl.section_schema,
         "style_rules": tmpl.style_rules,
+        "example_outputs": tmpl.example_outputs or {},
         "updated_at": tmpl.updated_at.isoformat() if tmpl.updated_at else None,
     })
 
@@ -432,6 +435,7 @@ async def api_update_magazine_template(
             is_active=True,
             section_schema=payload.section_schema,
             style_rules=payload.style_rules,
+            example_outputs=payload.example_outputs or {},
         )
         db.add(tmpl)
     else:
@@ -439,6 +443,8 @@ async def api_update_magazine_template(
             tmpl.name = payload.name
         tmpl.section_schema = payload.section_schema
         tmpl.style_rules = payload.style_rules
+        if payload.example_outputs is not None:
+            tmpl.example_outputs = payload.example_outputs
         tmpl.updated_at = datetime.now(timezone.utc)
 
     await db.commit()
@@ -450,8 +456,10 @@ async def api_update_magazine_template(
         "is_active": tmpl.is_active,
         "section_schema": tmpl.section_schema,
         "style_rules": tmpl.style_rules,
+        "example_outputs": tmpl.example_outputs or {},
         "updated_at": tmpl.updated_at.isoformat() if tmpl.updated_at else None,
     })
+
 
 
 @admin_router.post("/template/upload")
@@ -1028,6 +1036,70 @@ async def api_generate_grounded(
         db=db,
     )
     return success(res)
+
+
+class AIReviseRequest(BaseModel):
+    section_key: str
+    feedback_comment: str
+    current_content: str = ""
+    event_name: str = ""
+    raw_notes: str = ""
+    document_ids: list[int] | None = None
+
+
+@admin_router.post("/ai/revise")
+async def api_revise_section(
+    payload: AIReviseRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    """
+    Part 4 Section-Targeted Revision Endpoint:
+    Re-generates strictly the targeted section based on ground truth passages and admin feedback comment.
+    """
+    from app.modules.magazine.ai_service import revise_section_content
+
+    res = await revise_section_content(
+        section_key=payload.section_key,
+        feedback_comment=payload.feedback_comment,
+        current_content=payload.current_content,
+        event_name=payload.event_name,
+        raw_notes=payload.raw_notes,
+        document_ids=payload.document_ids,
+        db=db,
+    )
+    return success(res)
+
+
+class AIOrchestrationRequest(BaseModel):
+    event_name: str
+    raw_notes: str
+    template_name: str = "Siet Magazine Template"
+    max_rework_rounds: int = 2
+
+
+@admin_router.post("/ai/orchestrated-generate")
+async def api_orchestrated_magazine_generate(
+    payload: AIOrchestrationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    """
+    Orchestrator Agent Pipeline Endpoint:
+    Pre-generation Planning -> Plan-Conditioned Generation -> Section Verification -> Post-generation Holistic Design Scoring -> Rework Loop (max 2 rounds).
+    """
+    from app.modules.magazine.orchestrator import run_orchestrated_magazine_pipeline
+
+    res = await run_orchestrated_magazine_pipeline(
+        event_name=payload.event_name,
+        raw_notes=payload.raw_notes,
+        template_name=payload.template_name,
+        db=db,
+        max_rework_rounds=payload.max_rework_rounds,
+    )
+    return success(res)
+
+
 
 
 class RenderFromBlueprintRequest(BaseModel):

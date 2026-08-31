@@ -47,6 +47,11 @@ class Magazine(Base, BaseModelMixin):
     body_pages: Mapped[list | None] = mapped_column(JSON, default=list, nullable=True)
     gallery_images: Mapped[list | None] = mapped_column(JSON, default=list, nullable=True)
 
+    # Pre-generation Editorial Plan & Post-generation Holistic Design Score
+    editorial_plan: Mapped[dict | None] = mapped_column(JSON, default=dict, nullable=True)
+    orchestrator_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
     # Relationships
     pages: Mapped[list["MagazinePage"]] = relationship(back_populates="magazine", cascade="all, delete-orphan", order_by="MagazinePage.page_number")
     toc_entries: Mapped[list["MagazineTOCEntry"]] = relationship(back_populates="magazine", cascade="all, delete-orphan", order_by="MagazineTOCEntry.page_number")
@@ -153,8 +158,10 @@ class MagazineTemplate(Base, BaseModelMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     section_schema: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     style_rules: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    example_outputs: Mapped[dict | None] = mapped_column(JSON, default=dict, nullable=True)
 
     versions: Mapped[List["TemplateVersion"]] = relationship("TemplateVersion", back_populates="template", cascade="all, delete-orphan")
+
 
 
 class TemplateVersion(Base, BaseModelMixin):
