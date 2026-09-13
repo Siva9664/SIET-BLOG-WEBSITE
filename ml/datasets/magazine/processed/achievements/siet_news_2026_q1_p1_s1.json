@@ -1,0 +1,19 @@
+{
+  "story_id": "siet_news_2026_q1_p1_s1",
+  "doc_id": "siet_news_2026_q1",
+  "story_type": "achievements",
+  "page_start": 1,
+  "page_end": 1,
+  "headline": "SIET CSE Department Launches High-Performance AI Computing Facility",
+  "body": "Department of Computer Science & Engineering, SIET.\n\nDate: August 12, 2026.\n\nEstablishment of new High-Performance Computing cluster with 8 NVIDIA GPUs for AI research funded by Institutional Research Grant of INR 35 Lakhs. Lead Coordinator: Dr. V. Muralidharan, Professor & Head of CSE. Intended users: Final-year B.E. and M.E. scholars working on autonomous robotics and vision models.",
+  "date": "August 12, 2026",
+  "people": [
+    "Dr. V. Muralidharan"
+  ],
+  "organization": "Institutional Research Grant of INR 35 Lakhs",
+  "achievement_result": "INR 35 Lakhs",
+  "attached_photos": [],
+  "photo_confidence": "high",
+  "source_text": "# SIET CSE Department Launches High-Performance AI Computing Facility\n\nDepartment of Computer Science & Engineering, SIET.\nDate: August 12, 2026.\nEstablishment of new High-Performance Computing cluster with 8 NVIDIA GPUs for AI research funded by Institutional Research Grant of INR 35 Lakhs. Lead Coordinator: Dr. V. Muralidharan, Professor & Head of CSE. Intended users: Final-year B.E. and M.E. scholars working on autonomous robotics and vision models.",
+  "lab_department": "Computer Science & Engineering"
+}

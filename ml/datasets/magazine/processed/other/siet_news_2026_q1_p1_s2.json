@@ -1,0 +1,19 @@
+{
+  "story_id": "siet_news_2026_q1_p1_s2",
+  "doc_id": "siet_news_2026_q1",
+  "story_type": "workshops",
+  "page_start": 1,
+  "page_end": 1,
+  "headline": "Hands-on Workshop on Edge AI and TinyML Systems",
+  "body": "Event: Hands-on Workshop on Edge AI and TinyML Systems.\n\nDate: July 18-19, 2026.\n\nOrganized by: Department of Electronics & Communication Engineering, SIET.\n\nResource Person: Er. S. Karthik, Senior Embedded Architect at Silico Labs.\n\nParticipants: 85 registered undergraduate students from ECE and EEE.\n\nHands-on kits: ESP32-S3 microcontroller units paired with OV2640 camera sensors.\n\nProject outcome: Each participant deployed an on-device anomaly detection model.",
+  "date": "July 18-19, 2026",
+  "people": [
+    "Er. S. Karthik"
+  ],
+  "organization": "Electronics & Communication Engineering",
+  "achievement_result": null,
+  "attached_photos": [],
+  "photo_confidence": "high",
+  "source_text": "# Hands-on Workshop on Edge AI and TinyML Systems\n\nEvent: Hands-on Workshop on Edge AI and TinyML Systems.\nDate: July 18-19, 2026.\nOrganized by: Department of Electronics & Communication Engineering, SIET.\nResource Person: Er. S. Karthik, Senior Embedded Architect at Silico Labs.\nParticipants: 85 registered undergraduate students from ECE and EEE.\nHands-on kits: ESP32-S3 microcontroller units paired with OV2640 camera sensors.\nProject outcome: Each participant deployed an on-device anomaly detection model.",
+  "lab_department": "Electronics & Communication Engineering"
+}

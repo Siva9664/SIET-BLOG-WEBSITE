@@ -1,0 +1,20 @@
+{
+  "template_specs": [
+    {
+      "template_id": "template_modern_grid_01",
+      "lab_department": "Computer Science & Engineering",
+      "page_type": "photo_feature",
+      "story_type": "workshops",
+      "recommended_photos": 4,
+      "layout_intent": "image_grid"
+    },
+    {
+      "template_id": "template_hero_feature_03",
+      "lab_department": "Electronics & Communication Engineering",
+      "page_type": "event_page",
+      "story_type": "events",
+      "recommended_photos": 1,
+      "layout_intent": "hero_image"
+    }
+  ]
+}
