@@ -20,16 +20,17 @@ async def seed_data():
         admin = result.scalars().first()
 
         if not admin:
+            admin_password = os.getenv("ADMIN_INITIAL_PASSWORD", "ChangeMeDevOnly123!")
             admin_user = User(
                 name="System Administrator",
                 email=admin_email,
-                password_hash=hash_password("AdminPassword123"),
+                password_hash=hash_password(admin_password),
                 role=Roles.ADMIN,
                 email_verified=True
             )
             session.add(admin_user)
             await session.commit()
-            print("Default admin user seeded successfully (admin@siet.in / AdminPassword123).")
+            print("Default admin user seeded successfully (admin@siet.in).")
         else:
             print("Admin user already exists. Skipping.")
 

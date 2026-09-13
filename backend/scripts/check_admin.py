@@ -21,8 +21,11 @@ async def check_or_create_admin():
         
         # Ensure default admin account exists
         default_admin = (await session.execute(select(User).where(User.email == "admin@siet.ac.in"))).scalars().first()
-        initial_password = os.getenv("ADMIN_INITIAL_PASSWORD", "Admin@123")
+        initial_password = os.getenv("ADMIN_INITIAL_PASSWORD")
         if not default_admin:
+            if not initial_password:
+                initial_password = "ChangeMeDevOnly123!"
+                print("NOTICE: ADMIN_INITIAL_PASSWORD not set. Using local development fallback.")
             admin_user = User(
                 email="admin@siet.ac.in",
                 name="SIET Admin",
@@ -36,7 +39,7 @@ async def check_or_create_admin():
             await session.commit()
             print("Default Admin Created: admin@siet.ac.in")
         else:
-            if os.getenv("ADMIN_INITIAL_PASSWORD"):
+            if initial_password:
                 default_admin.password_hash = hash_password(initial_password)
                 await session.commit()
                 print("Default Admin Password updated from ADMIN_INITIAL_PASSWORD.")

@@ -79,7 +79,7 @@ PYTHONPATH=. ./venv/bin/alembic upgrade head
 # Synchronize database schema columns
 PYTHONPATH=. ./venv/bin/python scripts/sync_db.py
 
-# Verify / Create default Super Admin user (admin@siet.ac.in / Admin@123)
+# Verify / Create default Super Admin user (admin@siet.ac.in)
 PYTHONPATH=. ./venv/bin/python scripts/check_admin.py
 
 # (Optional) Seed sample records & fetch RSS news
@@ -102,11 +102,11 @@ PYTHONPATH=. ./venv/bin/pytest tests -v
 
 ---
 
-## 🔐 Default Super Admin Credentials
+## 🔐 Administrative User Accounts
 
-When the backend starts up or when `scripts/check_admin.py` is executed, the following default super administrator account is guaranteed to exist:
+When the backend starts up or when `scripts/check_admin.py` is executed, the initial super administrator account is guaranteed to exist:
 - **Email**: `admin@siet.ac.in`
-- **Password**: `Admin@123`
+- **Password**: Configured securely via the `ADMIN_INITIAL_PASSWORD` environment variable. Never expose default credentials in production.
 - **Role**: `SUPER_ADMIN`
 
 ---
