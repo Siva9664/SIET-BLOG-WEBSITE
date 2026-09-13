@@ -46,3 +46,12 @@ ml_eval/temp/
 ml_eval/data/
 !ml_eval/benchmark_results.json
 
+# ML Training artifacts & checkpoints
+ml/training/qwen/checkpoints/
+ml/training/qwen/outputs/
+ml/training/qwen/runs/
+ml/training/qwen/wandb/
+ml/training/qwen/adapters/
+ml/training/qwen/.cache/
+!ml/training/qwen/evaluations/evaluation_report.json
+
