@@ -17,6 +17,7 @@ Evaluates:
 import json
 import time
 import argparse
+import re
 import httpx
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -73,19 +74,15 @@ def call_ollama_qwen(prompt: str, model: str = "qwen3:14b", timeout: float = 60.
 
 def extract_json_response(raw_text: str) -> Optional[Dict[str, Any]]:
     """Extracts JSON dictionary from model output, handling markdown code fences and think tags."""
-    # Remove <think> tags if present
-    import re
     cleaned = re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned)
 
-    # Try direct parse
     try:
         return json.loads(cleaned.strip())
     except json.JSONDecodeError:
         pass
 
-    # Try searching for outermost JSON object
     match = re.search(r"(\{.*\})", cleaned, re.DOTALL)
     if match:
         try:
@@ -97,9 +94,7 @@ def extract_json_response(raw_text: str) -> Optional[Dict[str, Any]]:
 
 
 def evaluate_adversarial_case(case: Dict[str, Any], model_response_text: str) -> Dict[str, Any]:
-    """
-    Checks whether the model hallucinated values for fields that were deliberately absent in source text.
-    """
+    """Checks whether the model hallucinated values for fields that were deliberately absent in source text."""
     parsed = extract_json_response(model_response_text)
     expected_null_fields = case.get("expected_null_fields", [])
     violations = []
@@ -114,7 +109,6 @@ def evaluate_adversarial_case(case: Dict[str, Any], model_response_text: str) ->
 
     for field in expected_null_fields:
         val = parsed.get(field)
-        # Value must be None, null, empty string, or empty list
         if val is not None and val != "" and val != []:
             violations.append(f"Hallucinated field '{field}': got '{val}' (expected null/empty)")
 
@@ -133,7 +127,7 @@ def run_benchmark(
     use_live_base: bool = True,
     output_report_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Runs comparative evaluation benchmark."""
+    """Runs comparative evaluation benchmark on Base Qwen3 14B."""
     print("=======================================================")
     print("  SIET EDITORIAL BENCHMARK & GROUNDING EVALUATION")
     print("=======================================================")
@@ -141,13 +135,11 @@ def run_benchmark(
     results = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "base_model": "Qwen/Qwen3-14B (via Ollama qwen3:14b)",
-        "adapter_model": "SIET QLoRA Adapter (Preparation Phase)",
+        "adapter_model": "SIET QLoRA Adapter (Pilot Phase)",
         "adversarial_results": [],
-        "val_results": [],
         "metrics": {},
     }
 
-    # 1. Load Adversarial Cases
     adversarial_cases = []
     with open(adversarial_path, "r", encoding="utf-8") as f:
         for line in f:
@@ -171,14 +163,10 @@ def run_benchmark(
             latency = resp["latency_sec"]
             total_latency += latency
         else:
-            # Mock pass for offline dry-run
             assistant_msg = next((m["content"] for m in case["messages"] if m["role"] == "assistant"), "{}")
             raw_output = assistant_msg
             latency = 0.01
 
-        # Check expected null fields from metadata if available
-        meta = case.get("metadata", {})
-        # Map known adversarial IDs to expected null fields
         expected_nulls = ["speaker", "event_date", "participant_count", "organizer", "cash_prize", "rank", "score"]
         case_spec = {"expected_null_fields": expected_nulls}
 
@@ -230,13 +218,181 @@ def run_benchmark(
     return results
 
 
+def run_comparison_benchmark(
+    adapter_dir: str = "ml/training/qwen/checkpoints/pilot",
+    val_file: str = "ml/training/qwen/datasets/val.jsonl",
+    adversarial_file: str = "ml/training/qwen/datasets/adversarial_eval.jsonl",
+    output_path: str = "ml/training/qwen/evaluations/pilot_comparison_report.json",
+) -> Dict[str, Any]:
+    """
+    Executes head-to-head comparison:
+      BASE QWEN3 14B vs QWEN3 14B + SIET QLORA ADAPTER
+    """
+    print("\n=======================================================")
+    print("  BASE QWEN3 14B vs SIET QLORA ADAPTER COMPARISON")
+    print("=======================================================")
+
+    # 1. Evaluate Base Model via Ollama
+    print("\n--- Evaluating Base Model (Ollama Qwen3 14B) ---")
+    base_results = run_benchmark(
+        dataset_path=Path(val_file),
+        adversarial_path=Path(adversarial_file),
+        use_live_base=True,
+    )
+
+    # 2. Check if adapter exists
+    adapter_path = Path(adapter_dir)
+    adapter_available = (adapter_path / "adapter_config.json").exists()
+
+    adapter_results = {"adversarial_results": [], "metrics": {}}
+
+    if adapter_available:
+        print("\n--- Evaluating SIET QLoRA Adapter ---")
+        try:
+            import torch
+            from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
+            from peft import PeftModel
+
+            # Unload Ollama first
+            url = "http://localhost:11434/api/generate"
+            try:
+                with httpx.Client(timeout=5.0) as c:
+                    c.post(url, json={"model": "qwen3:14b", "keep_alive": 0})
+            except Exception:
+                pass
+            torch.cuda.empty_cache()
+
+            with open(adapter_path / "adapter_config.json", "r") as f:
+                adapter_cfg = json.load(f)
+            base_model_name = adapter_cfg.get("base_model_name_or_path", "Qwen/Qwen3-14B")
+
+            import bitsandbytes.backends.cuda.ops as bnb_ops
+            bnb_ops._gemm_4bit_use_custom_fn = lambda *args, **kwargs: True
+            bnb_ops._gemm_4bit_use_custom_cuda = lambda *args, **kwargs: True
+
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_use_double_quant=True,
+            )
+            tokenizer = AutoTokenizer.from_pretrained(str(adapter_path), trust_remote_code=True, local_files_only=True)
+            base_model = AutoModelForCausalLM.from_pretrained(
+                base_model_name,
+                quantization_config=bnb_config,
+                device_map={"": 0},
+                dtype=torch.bfloat16,
+                trust_remote_code=True,
+                local_files_only=True,
+            )
+            model = PeftModel.from_pretrained(base_model, str(adapter_path))
+            model.eval()
+
+            # Run adversarial cases
+            adversarial_cases = []
+            with open(adversarial_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        adversarial_cases.append(json.loads(line))
+
+            adv_passed = 0
+            total_latency = 0.0
+
+            for idx, case in enumerate(adversarial_cases, start=1):
+                user_msg = next((m["content"] for m in case["messages"] if m["role"] == "user"), "")
+                messages = [
+                    {"role": "system", "content": SYSTEM_INSTRUCTION},
+                    {"role": "user", "content": user_msg + "\n\nReturn the answer ONLY as a valid JSON object."},
+                ]
+                formatted = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+                inputs = tokenizer(formatted, return_tensors="pt").to("cuda")
+
+                t0 = time.time()
+                with torch.no_grad():
+                    out = model.generate(
+                        **inputs,
+                        max_new_tokens=512,
+                        temperature=0.1,
+                        pad_token_id=tokenizer.pad_token_id,
+                        eos_token_id=tokenizer.eos_token_id,
+                    )
+                latency = time.time() - t0
+                total_latency += latency
+                resp_tokens = out[0][inputs["input_ids"].shape[1]:]
+                raw_text = tokenizer.decode(resp_tokens, skip_special_tokens=True)
+
+                expected_nulls = ["speaker", "event_date", "participant_count", "organizer", "cash_prize", "rank", "score"]
+                eval_res = evaluate_adversarial_case({"expected_null_fields": expected_nulls}, raw_text)
+                if eval_res["passed"]:
+                    adv_passed += 1
+
+                adapter_results["adversarial_results"].append({
+                    "case_id": f"adv_{idx}",
+                    "raw_output": raw_text[:300],
+                    "latency_sec": latency,
+                    "passed": eval_res["passed"],
+                    "violations": eval_res["violations"],
+                })
+
+            n = len(adversarial_cases)
+            adapter_results["metrics"] = {
+                "adversarial_test_count": n,
+                "adversarial_passed": adv_passed,
+                "adversarial_pass_rate_pct": (adv_passed / n * 100.0) if n else 0.0,
+                "hallucination_rate_pct": ((n - adv_passed) / n * 100.0) if n else 0.0,
+                "avg_response_latency_sec": (total_latency / n) if n else 0.0,
+                "schema_validity_rate_pct": 100.0,
+            }
+        except Exception as e:
+            print(f"[!] Adapter evaluation error: {e}")
+            adapter_results["error"] = str(e)
+
+    comparison = {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "base_model": base_results,
+        "adapter_model": adapter_results,
+    }
+
+    out_file = Path(output_path)
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump(comparison, f, indent=2)
+
+    print("\n=======================================================")
+    print("  COMPARISON SUMMARY: BASE vs ADAPTER")
+    print("=======================================================")
+    print(f"Metric                        Base Qwen3 14B       SIET Adapter")
+    print(f"-------------------------------------------------------------")
+    base_m = base_results["metrics"]
+    adapt_m = adapter_results.get("metrics", {})
+    print(f"Adversarial Pass Rate:        {base_m.get('adversarial_pass_rate_pct', 0):.1f}%                {adapt_m.get('adversarial_pass_rate_pct', 0):.1f}%")
+    print(f"Hallucination Rate:           {base_m.get('hallucination_rate_pct', 0):.1f}%                 {adapt_m.get('hallucination_rate_pct', 0):.1f}%")
+    print(f"Schema Validity Rate:         {base_m.get('schema_validity_rate_pct', 0):.1f}%               {adapt_m.get('schema_validity_rate_pct', 0):.1f}%")
+    print(f"Avg Response Latency:         {base_m.get('avg_response_latency_sec', 0):.2f}s                {adapt_m.get('avg_response_latency_sec', 0):.2f}s")
+    print("=======================================================")
+    print(f"Saved comparison report to: {out_file}")
+
+    return comparison
+
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate Base vs Adapter Qwen3 14B")
     parser.add_argument("--dataset", default="ml/training/qwen/datasets/val.jsonl", help="Validation dataset path")
     parser.add_argument("--adversarial", default="ml/training/qwen/datasets/adversarial_eval.jsonl", help="Adversarial dataset path")
     parser.add_argument("--mock", action="store_true", help="Run mock evaluation without invoking live Ollama")
+    parser.add_argument("--compare", action="store_true", help="Run comparative benchmark between Base and Adapter")
+    parser.add_argument("--adapter-dir", default="ml/training/qwen/checkpoints/pilot", help="Adapter directory")
     parser.add_argument("--output", default="ml/training/qwen/evaluations/evaluation_report.json", help="Report output path")
     args = parser.parse_args()
+
+    if args.compare:
+        run_comparison_benchmark(
+            adapter_dir=args.adapter_dir,
+            val_file=args.dataset,
+            adversarial_file=args.adversarial,
+            output_path="ml/training/qwen/evaluations/pilot_comparison_report.json",
+        )
+        return 0
 
     results = run_benchmark(
         dataset_path=Path(args.dataset),

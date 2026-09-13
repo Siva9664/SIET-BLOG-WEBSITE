@@ -63,33 +63,58 @@ ml/training/qwen/
 
 ## 4. Operational Runbook
 
-### Step 1: Prepare Dataset
-Generates SFT examples across all 22 college categories:
+### Step 1: Model Prerequisite (Offline / Local Cache Verification)
+The training pipeline enforces strict offline execution (`local_files_only=True`) and will abort if model files are missing from local storage, preventing any unprompted remote downloads. Ensure the base model is cached locally:
+```bash
+# Verify or download base model files prior to training
+huggingface-cli download Qwen/Qwen3-14B
+```
+
+### Step 2: Prepare Dataset
+Generates structured SFT examples across all 22 college categories:
 ```bash
 ./.ml-venv/bin/python ml/training/qwen/prepare_dataset.py
 ```
 
-### Step 2: Validate Dataset & Grounding
-Performs JSON validation, grounding verification, and generates train/val splits:
+### Step 3: Validate Dataset & Grounding
+Performs JSON schema validation, grounding verification, and generates train/val splits:
 ```bash
 ./.ml-venv/bin/python ml/training/qwen/validate_dataset.py --split
 ```
 
-### Step 3: Run Configuration Dry-Run & Tiny GPU Compatibility Test
-Validates tokenizer, ChatML template, LoRA target modules, and executes an isolated 4-bit forward/backward step on the RTX 5070:
+### Step 4: Configuration Dry-Run & Tiny GPU Compatibility Test
+Inspects parameters, memory budget, local cache status, and executes an isolated 4-bit forward/backward step on the RTX 5070 without starting training:
 ```bash
+# Configuration inspection only
 ./.ml-venv/bin/python ml/training/qwen/train_qlora.py --dry-run
+
+# Isolated GPU 4-bit + PEFT compatibility pass
 ./.ml-venv/bin/python ml/training/qwen/train_qlora.py --tiny-test
+
+# Safe default invocation (runs dry-run + tiny test, safely exits without training)
+./.ml-venv/bin/python ml/training/qwen/train_qlora.py --config ml/training/qwen/pilot_config.yaml
 ```
 
-### Step 4: Run Grounding & Adversarial Benchmark
-Evaluates adversarial missing-information resistance (ensuring absent facts remain null/empty):
+### Step 5: Execute Fine-Tuning Training Run (`--train`)
+To start fine-tuning, the `--train` flag MUST be explicitly passed. Running without `--train` will never accidentally start a long training job:
 ```bash
+# Pilot training run (16 samples, pilot_config.yaml)
+./.ml-venv/bin/python ml/training/qwen/train_qlora.py --train --config ml/training/qwen/pilot_config.yaml
+
+# Full fine-tuning run (config.yaml)
+./.ml-venv/bin/python ml/training/qwen/train_qlora.py --train --config ml/training/qwen/config.yaml
+```
+
+### Step 6: Verify Saved Adapter & Run Benchmarks
+```bash
+# Test adapter reloading and live inference
+./.ml-venv/bin/python ml/training/qwen/train_qlora.py --verify-adapter
+
 # Offline mock benchmark
 ./.ml-venv/bin/python ml/training/qwen/evaluate.py --mock
 
-# Live Ollama Qwen3 14B benchmark
-./.ml-venv/bin/python ml/training/qwen/evaluate.py
+# Comparative evaluation between Base and Adapter
+./.ml-venv/bin/python ml/training/qwen/evaluate.py --compare --adapter-dir ml/training/qwen/checkpoints/pilot
 ```
 
 ---
