@@ -483,6 +483,10 @@ export const api = {
     return req<{ message: string; id: string }>(`/admin/magazine/${id}/unpublish`, { method: "POST" });
   },
 
+  adminCompileMagazine: async (id: string) => {
+    return req<{ message: string; id: string; pdf_url?: string; page_count?: number }>(`/admin/magazine/${id}/compile`, { method: "POST" });
+  },
+
   // One-Click AI Auto-Fill for Event Magazine
   adminAutoGenerateFullMagazine: async (b: {
     event_name: string;
@@ -522,6 +526,37 @@ export const api = {
       detected_event_date: string;
       extracted_notes: string;
       extracted_images: { id: string; url: string; file_name: string }[];
+    };
+  },
+
+  adminGenerateEndToEndMagazine: async (formData: FormData) => {
+    const res = await req<any>("/admin/magazine/generate/end-to-end", {
+      method: "POST",
+      body: formData,
+    });
+    return (res?.data || res) as {
+      magazine_id?: number | null;
+      title: string;
+      slug: string;
+      department_or_lab: string;
+      status: string;
+      pdf_url?: string | null;
+      cover_image_url?: string | null;
+      total_pages: number;
+      page_previews: string[];
+      toc_entries: { page_number: number; heading: string }[];
+      stage_telemetry: {
+        stage_number: number;
+        stage_name: string;
+        status: string;
+        message: string;
+        details: Record<string, any>;
+        elapsed_seconds: number;
+      }[];
+      qc_reports: any[];
+      overall_quality_score: number;
+      execution_time_seconds: number;
+      notes: string;
     };
   },
 

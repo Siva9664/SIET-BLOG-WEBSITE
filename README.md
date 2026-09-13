@@ -1,6 +1,6 @@
 # SIET News / Articles / Magazine Portal
 
-Welcome to the **SIET News / Articles / Magazine Portal** codebase for **Sri Shakthi Institute of Engineering and Technology**. This repository contains a Next.js 16 frontend and a FastAPI (Python 3.12) backend using Vertical-Slice Architecture and PostgreSQL.
+Welcome to the **SIET News / Articles / Magazine Portal** codebase for **Sri Shakthi Institute of Engineering and Technology**. This repository contains a Next.js 15 frontend and a FastAPI (Python 3.12) backend using Vertical-Slice Architecture and PostgreSQL.
 
 ---
 
@@ -8,11 +8,11 @@ Welcome to the **SIET News / Articles / Magazine Portal** codebase for **Sri Sha
 
 ```
 SIET-BLOG-WEBSITE/
-├── src/                # Next.js 16 App Router Frontend
+├── src/                # Next.js 15 App Router Frontend
 ├── backend/            # FastAPI Async Backend (Python 3.12)
 │   ├── app/
 │   │   ├── core/       # Settings, Database Engine, Security, Lifespan, Scheduler
-│   │   ├── modules/    # Vertical Slices (admin, articles, auth, domains, health, magazine, news, tags)
+│   │   ├── modules/    # Vertical Slices (admin, analysis, articles, auth, contact, datasets, documents, domains, engagement, health, ingestion, internal, magazine, media, news, search, settings, tags, template_engine)
 │   │   ├── infrastructure/ # External services (Email, Storage, Search)
 │   │   └── shared/     # Base repositories, middleware, pagination, types
 │   ├── scripts/        # Operational CLI scripts (check_admin, seed, sync_db, fetch_todays_news)
@@ -49,7 +49,7 @@ cp .env.example .env
 ```
 Ensure your database connection URL is properly configured:
 ```env
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/siet_db
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/siet_db
 ENV=development
 ```
 
@@ -62,7 +62,7 @@ PYTHONPATH=. ./venv/bin/alembic upgrade head
 # Synchronize missing columns and tables
 PYTHONPATH=. ./venv/bin/python scripts/sync_db.py
 
-# Verify / Create default Super Admin user (admin@siet.ac.in / Admin@123)
+# Verify / Create default Super Admin user (admin@siet.ac.in)
 PYTHONPATH=. ./venv/bin/python scripts/check_admin.py
 
 # (Optional) Seed sample data and initial tech news
@@ -120,7 +120,7 @@ All CLI scripts are executed from the `backend/` folder with `PYTHONPATH=.`:
 
 | Script | Command | Purpose |
 | :--- | :--- | :--- |
-| **Check Admin** | `PYTHONPATH=. ./venv/bin/python scripts/check_admin.py` | Validates & creates the default Super Admin (`admin@siet.ac.in` / `Admin@123`) |
+| **Check Admin** | `PYTHONPATH=. ./venv/bin/python scripts/check_admin.py` | Validates & creates initial Super Admin account |
 | **Sync Database** | `PYTHONPATH=. ./venv/bin/python scripts/sync_db.py` | Ensures all schema tables and columns are created |
 | **Seed Data** | `PYTHONPATH=. ./venv/bin/python scripts/seed.py` | Seeds default administrative users and domain tags |
 | **Fetch News** | `PYTHONPATH=. ./venv/bin/python scripts/fetch_todays_news.py` | Ingests latest tech RSS news feeds into PostgreSQL |
@@ -129,14 +129,16 @@ All CLI scripts are executed from the `backend/` folder with `PYTHONPATH=.`:
 
 ## 🔐 Administrative User Accounts
 
-Default super administrator account generated on application startup:
-- **Email**: `admin@siet.ac.in`
-- **Password**: `Admin@123`
+Initial administrative accounts can be verified or initialized via `scripts/check_admin.py`:
+- **Default Email**: `admin@siet.ac.in`
+- **Password**: Configured securely via the `ADMIN_INITIAL_PASSWORD` environment variable or set during deployment. Default or hardcoded production passwords must never be used.
 - **Role**: `SUPER_ADMIN`
 
 ---
 
 ## 🧪 Testing Summary
 
-- **Backend Pytest Suite**: 20/20 test cases passing across `auth`, `admin`, `health`, `core`, and `engagement` modules.
-- **Frontend Linting**: ESLint v9 configuration verified clean.
+- **Backend Pytest Suite**: 137 test cases passing across `auth`, `admin`, `health`, `core`, `engagement`, `documents`, `ingestion`, `datasets`, and `magazine` modules.
+- **Frontend Linting**: ESLint v9 configuration verified clean (0 errors, 0 warnings).
+- **Frontend Type Checking**: TypeScript `tsc --noEmit` verified clean.
+- **Frontend Production Build**: 30/30 Next.js routes compiled cleanly.

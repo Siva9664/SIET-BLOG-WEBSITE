@@ -89,6 +89,20 @@ class Settings(BaseSettings):
     REFRESH_COOKIE_NAME: str = "refresh_token"
     REQUEST_TIMEOUT: int = 30
 
+    MAGAZINE_LLM_PROVIDER: str = "auto"
+    MAGAZINE_LLM_MODEL: str = ""
+    MAGAZINE_OLLAMA_BASE_URL: str = "http://localhost:11434"
+    MAGAZINE_OLLAMA_MODEL: str = "qwen3:8b"
+    MAGAZINE_GEMINI_MODEL: str = "gemini-1.5-flash"
+    MAGAZINE_OPENAI_MODEL: str = "gpt-3.5-turbo"
+    MAGAZINE_LLM_TIMEOUT_SECONDS: float = 45.0
+    MAGAZINE_LLM_TEMPERATURE: float = 0.2
+    MAGAZINE_VISION_MODEL: str = "google/siglip-base-patch16-224"
+    MAGAZINE_VISION_DEVICE: str = "cpu"
+    MAGAZINE_PHOTO_RELEVANCE_WEIGHT: float = 0.70
+    MAGAZINE_PHOTO_QUALITY_WEIGHT: float = 0.30
+    MAGAZINE_DUPLICATE_SIMILARITY_THRESHOLD: float = 0.96
+
     @model_validator(mode="after")
     def validate_production_config(self) -> "Settings":
         if self.ENV == Environment.production:

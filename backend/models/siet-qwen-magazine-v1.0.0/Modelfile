@@ -1,0 +1,7 @@
+# SIET Magazine Qwen Fine-Tuned Modelfile
+FROM Qwen/Qwen2.5-0.5B-Instruct
+ADAPTER /home/shiva/SIET-BLOG-WEBSITE/backend/models/siet-qwen-magazine-v1.0.0
+PARAMETER temperature 0.2
+PARAMETER top_p 0.9
+PARAMETER stop "<|im_end|>"
+SYSTEM """You are the official editorial AI for the SIET Engineering Magazine (Sri Shakthi Institute of Engineering & Technology). Write concise, factual, and polished magazine content following the official institutional style guidelines."""

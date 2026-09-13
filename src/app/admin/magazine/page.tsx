@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import type { User, MagazineIssue } from "@/lib/types";
+import type { User, MagazineIssue, Domain } from "@/lib/types";
 import { ErrorState } from "@/components/shared";
 
 interface GalleryItem {
@@ -22,6 +22,10 @@ interface EventMagazine {
   description?: string;
   eventName?: string;
   eventDate?: string;
+  departmentId?: number | null;
+  departmentName?: string | null;
+  targetPageBudget?: number;
+  orchestratorScore?: number;
   year?: number;
   type?: string;
   status: string;
@@ -44,8 +48,10 @@ export default function AdminMagazinePage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [issues, setIssues] = useState<EventMagazine[]>([]);
+  const [domains, setDomains] = useState<Domain[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [compilingId, setCompilingId] = useState<string | null>(null);
 
   // Modal State
   const [uploadMode, setUploadMode] = useState<"pdf" | "event">("event");
@@ -54,6 +60,8 @@ export default function AdminMagazinePage() {
   // Form Fields - Minimum Inputs for AI
   const [eventName, setEventName] = useState("");
   const [eventDate, setEventDate] = useState(new Date().toISOString().split("T")[0]);
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
+  const [targetPageBudget, setTargetPageBudget] = useState(5);
   const [eventFile, setEventFile] = useState<File | null>(null);
   const [useManualNotes, setUseManualNotes] = useState(false);
   const [rawNotes, setRawNotes] = useState("");
@@ -99,6 +107,75 @@ export default function AdminMagazinePage() {
   const [templateSaving, setTemplateSaving] = useState(false);
   const [templateSuccess, setTemplateSuccess] = useState<string | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
+
+  // End-to-End AI Pipeline State
+  const [isEndToEndOpen, setIsEndToEndOpen] = useState(false);
+  const [e2eFile, setE2eFile] = useState<File | null>(null);
+  const [e2ePhotos, setE2ePhotos] = useState<File[]>([]);
+  const [e2eTemplates, setE2eTemplates] = useState<File[]>([]);
+  const [e2eDept, setE2eDept] = useState("AI Lab");
+  const [e2eEventName, setE2eEventName] = useState("");
+  const [e2eEventDate, setE2eEventDate] = useState(new Date().toISOString().split("T")[0]);
+  const [e2eNotes, setE2eNotes] = useState("");
+  const [e2eBudget, setE2eBudget] = useState(5);
+  const [e2eRunning, setE2eRunning] = useState(false);
+  const [e2eCurrentStage, setE2eCurrentStage] = useState<number>(0);
+  const [e2eTelemetry, setE2eTelemetry] = useState<any[]>([]);
+  const [e2eResult, setE2eResult] = useState<any | null>(null);
+  const [e2eError, setE2eError] = useState<string | null>(null);
+
+  const PIPELINE_STAGES = [
+    { num: 1, name: "Reading documents", desc: "Parsing DOCX/PDF & template files" },
+    { num: 2, name: "Extracting content", desc: "Chunking spans & metadata detection" },
+    { num: 3, name: "Understanding sections", desc: "Qwen classifying sections & writing editorial copy" },
+    { num: 4, name: "Selecting templates", desc: "Template intelligence matching lab/department" },
+    { num: 5, name: "Matching photographs", desc: "SigLIP scoring real photographs" },
+    { num: 6, name: "Planning pages", desc: "Multi-page planning & deterministic regions" },
+    { num: 7, name: "Rendering pages", desc: "Template-driven PyMuPDF rendering" },
+    { num: 8, name: "Validating pages", desc: "Visual QC checks & closed-loop recovery" },
+    { num: 9, name: "Finalizing magazine", desc: "PDF compilation, previews & publishing" },
+  ];
+
+  const handleRunEndToEndPipeline = async () => {
+    if (!e2eFile && !e2eNotes.trim() && !e2eEventName.trim()) {
+      setE2eError("Please select a document file (.docx / .pdf), or provide event notes.");
+      return;
+    }
+    setE2eRunning(true);
+    setE2eError(null);
+    setE2eResult(null);
+    setE2eCurrentStage(1);
+
+    const progressTimer = setInterval(() => {
+      setE2eCurrentStage((prev) => (prev < 8 ? prev + 1 : prev));
+    }, 1800);
+
+    try {
+      const formData = new FormData();
+      if (e2eFile) formData.append("file", e2eFile);
+      e2ePhotos.forEach((p) => formData.append("photos", p));
+      e2eTemplates.forEach((t) => formData.append("templates", t));
+      if (e2eEventName.trim()) formData.append("event_name", e2eEventName.trim());
+      if (e2eEventDate) formData.append("event_date", e2eEventDate);
+      formData.append("department_or_lab", e2eDept);
+      if (e2eNotes.trim()) formData.append("raw_notes", e2eNotes.trim());
+      formData.append("target_page_budget", String(e2eBudget));
+      formData.append("publish_immediately", "true");
+      formData.append("use_llm", "true");
+
+      const res = await api.adminGenerateEndToEndMagazine(formData);
+      clearInterval(progressTimer);
+      setE2eCurrentStage(9);
+      setE2eTelemetry(res.stage_telemetry || []);
+      setE2eResult(res);
+      await loadIssues();
+    } catch (err: any) {
+      clearInterval(progressTimer);
+      setE2eError(err?.message || "Pipeline execution encountered an error.");
+    } finally {
+      setE2eRunning(false);
+    }
+  };
 
   const loadTemplate = async () => {
     setTemplateLoading(true);
@@ -235,6 +312,11 @@ export default function AdminMagazinePage() {
       }
     });
 
+    api.domains().then((res: any) => {
+      const list = Array.isArray(res) ? res : (res?.data || []);
+      setDomains(list);
+    }).catch(() => {});
+
     const interval = setInterval(() => {
       api.adminListMagazines().then((data) => {
         if (Array.isArray(data)) setIssues(data as any);
@@ -242,6 +324,19 @@ export default function AdminMagazinePage() {
     }, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleCompileMagazine = async (id: string) => {
+    setCompilingId(id);
+    try {
+      await api.adminCompileMagazine(id);
+      await loadIssues();
+    } catch (err: any) {
+      console.error("Compile error:", err);
+      alert(err?.message || "Failed to compile magazine.");
+    } finally {
+      setCompilingId(null);
+    }
+  };
 
   if (authChecked && currentUser && !["SUPER_ADMIN", "ADMIN", "admin"].includes(currentUser.role)) {
     return (
@@ -257,6 +352,8 @@ export default function AdminMagazinePage() {
     setUploadMode(mode);
     setEventName("");
     setEventDate(new Date().toISOString().split("T")[0]);
+    setSelectedDepartmentId("");
+    setTargetPageBudget(5);
     setEventFile(null);
     setUseManualNotes(false);
     setRawNotes("");
@@ -437,6 +534,21 @@ export default function AdminMagazinePage() {
         createFd.append("event_date", eventDate);
         createFd.append("publication_year", String(year));
         createFd.append("magazine_type", magazineType);
+        createFd.append("target_page_budget", String(targetPageBudget));
+
+        if (selectedDepartmentId) {
+          createFd.append("department_id", selectedDepartmentId);
+          const matched = domains.find((d) => String(d.id || d.slug) === selectedDepartmentId || d.slug === selectedDepartmentId);
+          if (matched) {
+            createFd.append("department_name", matched.name);
+          }
+        }
+
+        if (section2Mode === "ai_article" && aiGeneratedArticle) {
+          createFd.append("writeup_headline", aiGeneratedArticle.headline);
+          createFd.append("writeup_html", aiGeneratedArticle.html);
+          createFd.append("writeup_text", rawNotes.trim() || aiGeneratedArticle.headline);
+        }
 
         // Include any extracted images already uploaded to server
         const extractedGallery = galleryItems
@@ -529,6 +641,16 @@ export default function AdminMagazinePage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <button
+            onClick={() => {
+              setIsEndToEndOpen(true);
+              setE2eError(null);
+              setE2eResult(null);
+            }}
+            className="font-util text-eyebrow uppercase tracking-wider text-paper bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 transition-colors px-4 py-2 cursor-pointer font-bold flex items-center gap-1.5 shadow-sm"
+          >
+            <span>🚀</span> End-to-End AI Pipeline
+          </button>
+          <button
             onClick={handleOpenTemplateModal}
             className="font-util text-eyebrow uppercase tracking-wider text-ink bg-paper-2 hover:bg-paper-3 border border-line transition-colors px-4 py-2 cursor-pointer font-bold flex items-center gap-1.5"
           >
@@ -591,11 +713,18 @@ export default function AdminMagazinePage() {
                   </td>
 
                   <td className="p-4 max-w-sm">
-                    {issue.eventName && (
-                      <span className="font-util text-[9px] uppercase tracking-wider text-accent font-bold block mb-0.5">
-                        📍 {issue.eventName}
-                      </span>
-                    )}
+                    <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                      {issue.eventName && (
+                        <span className="font-util text-[9px] uppercase tracking-wider text-accent font-bold">
+                          📍 {issue.eventName}
+                        </span>
+                      )}
+                      {issue.departmentName && (
+                        <span className="font-util text-[9px] uppercase tracking-wider text-ink-soft bg-paper-3 px-1.5 py-0.5 border border-line">
+                          🏛️ {issue.departmentName}
+                        </span>
+                      )}
+                    </div>
                     <a
                       href={`/magazine/${issue.slug}`}
                       target="_blank"
@@ -657,6 +786,15 @@ export default function AdminMagazinePage() {
                   </td>
 
                   <td className="p-4 text-right space-x-2">
+                    <button
+                      onClick={() => handleCompileMagazine(issue.id)}
+                      disabled={compilingId === issue.id}
+                      className="font-util text-[10px] uppercase tracking-wider px-2 py-1 border border-ink/30 text-ink hover:bg-ink/5 cursor-pointer disabled:opacity-50"
+                      title="Render high-resolution multi-page PDF immediately"
+                    >
+                      {compilingId === issue.id ? "Rendering..." : "⚡ Render PDF"}
+                    </button>
+
                     <button
                       onClick={() => handleTogglePublish(issue)}
                       className={`font-util text-[10px] uppercase tracking-wider px-2 py-1 border cursor-pointer ${
@@ -765,6 +903,41 @@ export default function AdminMagazinePage() {
                         onChange={(e) => setEventDate(e.target.value)}
                         className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-util"
                       />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
+                        Department / Research Lab
+                      </label>
+                      <select
+                        value={selectedDepartmentId}
+                        onChange={(e) => setSelectedDepartmentId(e.target.value)}
+                        className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-sans text-xs"
+                      >
+                        <option value="">General Engineering & Campus-Wide</option>
+                        {domains.map((d) => (
+                          <option key={d.id || d.slug} value={String(d.id || d.slug)}>
+                            {d.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider">
+                        Target Page Budget
+                      </label>
+                      <select
+                        value={targetPageBudget}
+                        onChange={(e) => setTargetPageBudget(Number(e.target.value))}
+                        className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-util text-xs"
+                      >
+                        <option value={4}>4 Pages (Standard Issue)</option>
+                        <option value={5}>5 Pages (Editorial Digest + AI Digest)</option>
+                        <option value={8}>8 Pages (Special Feature Edition)</option>
+                        <option value={12}>12 Pages (Annual Symposium Volume)</option>
+                      </select>
                     </div>
                   </div>
 
@@ -1329,6 +1502,295 @@ export default function AdminMagazinePage() {
                     {templateSaving ? "Saving Template..." : "Save Active Template"}
                   </button>
                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* END-TO-END AI MAGAZINE GENERATION PIPELINE MODAL */}
+      {isEndToEndOpen && (
+        <div className="fixed inset-0 z-50 bg-paper/80 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="w-full max-w-4xl border border-line bg-paper-2 p-6 space-y-6 shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex justify-between items-start border-b border-line pb-4">
+              <div>
+                <p className="font-util text-[10px] uppercase tracking-wider text-emerald-700 font-bold flex items-center gap-1.5">
+                  <span>🚀</span> End-to-End Autonomous Publication
+                </p>
+                <h2 className="font-display text-h3 font-semibold text-ink mt-0.5">
+                  AI Magazine Generation Pipeline
+                </h2>
+                <p className="font-body text-xs text-ink-soft">
+                  Integrates Document Parsing, Qwen RAG Understanding, Template Intelligence, SigLIP Real-Photo Matching, Multi-Page Layout Planning, Template-Driven Rendering, and 10-Check Visual Quality Control.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  if (!e2eRunning) setIsEndToEndOpen(false);
+                }}
+                disabled={e2eRunning}
+                className="font-util text-eyebrow text-ink-soft hover:text-ink uppercase tracking-wider text-xs cursor-pointer disabled:opacity-30"
+              >
+                [×] Close
+              </button>
+            </div>
+
+            {/* Pipeline Configuration Form */}
+            {!e2eRunning && !e2eResult && (
+              <div className="space-y-4 text-xs">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Source Document File */}
+                  <div className="bg-paper p-3.5 border border-line space-y-2 rounded-xs">
+                    <label className="block font-util text-eyebrow text-ink uppercase tracking-wider font-bold">
+                      1. Event Report Document (.docx / .pdf / .txt)
+                    </label>
+                    <input
+                      type="file"
+                      accept=".docx,.doc,.pdf,.txt,.md"
+                      onChange={(e) => setE2eFile(e.target.files?.[0] || null)}
+                      className="w-full text-xs font-util file:mr-2 file:py-1.5 file:px-3 file:border-0 file:text-[10px] file:uppercase file:tracking-wider file:font-semibold file:bg-paper-3 file:text-ink hover:file:bg-line cursor-pointer"
+                    />
+                    {e2eFile && (
+                      <p className="font-util text-[10px] text-emerald-700 font-medium">
+                        ✓ Selected: {e2eFile.name} ({(e2eFile.size / 1024).toFixed(1)} KB)
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Real Photographs */}
+                  <div className="bg-paper p-3.5 border border-line space-y-2 rounded-xs">
+                    <label className="block font-util text-eyebrow text-ink uppercase tracking-wider font-bold">
+                      2. Real College Photographs (SigLIP Ranked)
+                    </label>
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={(e) => setE2ePhotos(Array.from(e.target.files || []))}
+                      className="w-full text-xs font-util file:mr-2 file:py-1.5 file:px-3 file:border-0 file:text-[10px] file:uppercase file:tracking-wider file:font-semibold file:bg-paper-3 file:text-ink hover:file:bg-line cursor-pointer"
+                    />
+                    <p className="font-util text-[10px] text-ink-soft">
+                      {e2ePhotos.length > 0
+                        ? `✓ ${e2ePhotos.length} real photos uploaded`
+                        : "Strictly real photographs preferred. Zero synthetic AI generation."}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {/* Department / Lab Selector */}
+                  <div className="space-y-1">
+                    <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider font-semibold">
+                      Department / Lab Template Group
+                    </label>
+                    <select
+                      value={e2eDept}
+                      onChange={(e) => setE2eDept(e.target.value)}
+                      className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-medium"
+                    >
+                      <option value="AI Lab">AI Lab (Neural / High-Tech)</option>
+                      <option value="IoT Lab">IoT Lab (Embedded / Hardware)</option>
+                      <option value="Robotics Lab">Robotics Lab (Automation / Systems)</option>
+                      <option value="Cyber Security Lab">Cyber Security Lab (Security / Defense)</option>
+                      <option value="Research Lab">Research Lab (Academic Spread)</option>
+                      <option value="Department activities">Department Activities</option>
+                      <option value="Student achievements">Student Achievements</option>
+                      <option value="Faculty achievements">Faculty Achievements</option>
+                      <option value="Events">Events &amp; Symposia</option>
+                      <option value="Projects">Projects &amp; Prototypes</option>
+                    </select>
+                  </div>
+
+                  {/* Event Name */}
+                  <div className="space-y-1">
+                    <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider font-semibold">
+                      Event / Topic (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={e2eEventName}
+                      onChange={(e) => setE2eEventName(e.target.value)}
+                      placeholder="Auto-detected from file if blank"
+                      className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink"
+                    />
+                  </div>
+
+                  {/* Target Page Budget */}
+                  <div className="space-y-1">
+                    <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider font-semibold">
+                      Target Page Budget ({e2eBudget} Pages)
+                    </label>
+                    <input
+                      type="range"
+                      min={2}
+                      max={10}
+                      value={e2eBudget}
+                      onChange={(e) => setE2eBudget(Number(e.target.value))}
+                      className="w-full accent-emerald-700 cursor-pointer mt-2"
+                    />
+                  </div>
+                </div>
+
+                {/* Raw Notes Fallback */}
+                <div className="space-y-1">
+                  <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider font-semibold">
+                    Raw Event Notes / Supplementary Text (Optional)
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={e2eNotes}
+                    onChange={(e) => setE2eNotes(e.target.value)}
+                    placeholder="Provide additional details, student names, project highlights, or agenda notes..."
+                    className="w-full border border-line bg-paper p-2.5 outline-none focus:border-ink"
+                  />
+                </div>
+
+                {e2eError && (
+                  <div className="p-3 bg-rose-50 border border-rose-300 text-rose-800 font-util text-[10px] uppercase tracking-wider font-bold">
+                    ⚠️ {e2eError}
+                  </div>
+                )}
+
+                {/* Run Button */}
+                <div className="pt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleRunEndToEndPipeline}
+                    className="font-util text-eyebrow uppercase tracking-wider text-paper bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 px-6 py-3 cursor-pointer font-bold shadow-md flex items-center gap-2"
+                  >
+                    <span>⚡</span> Run 9-Stage AI Generation Pipeline
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Active 9-Stage Progress Tracker */}
+            {(e2eRunning || (e2eResult && e2eTelemetry.length > 0)) && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-line pb-2">
+                  <span className="font-util text-[10px] uppercase tracking-wider text-emerald-800 font-bold flex items-center gap-1.5">
+                    {e2eRunning ? (
+                      <>
+                        <span className="animate-spin text-sm">⚙️</span> Generation In Progress (Stage {e2eCurrentStage} of 9)...
+                      </>
+                    ) : (
+                      <>
+                        <span>✅</span> Generation Complete
+                      </>
+                    )}
+                  </span>
+                  <span className="font-util text-[10px] text-ink-soft">
+                    {e2eResult ? `${e2eResult.total_pages} Pages · QC Score: ${e2eResult.overall_quality_score}/100` : "Autonomous Flow"}
+                  </span>
+                </div>
+
+                {/* 9-Stage Stepper Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                  {PIPELINE_STAGES.map((st) => {
+                    const isPassed = e2eResult || st.num < e2eCurrentStage;
+                    const isActive = e2eRunning && st.num === e2eCurrentStage;
+                    const tele = e2eTelemetry.find((t: any) => t.stage_number === st.num);
+
+                    return (
+                      <div
+                        key={st.num}
+                        className={`p-3 border rounded-xs transition-all ${
+                          isActive
+                            ? "border-emerald-600 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-600"
+                            : isPassed
+                            ? "border-emerald-200 bg-emerald-50/30 text-ink"
+                            : "border-line bg-paper/60 text-ink-soft opacity-60"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-util text-[9px] uppercase tracking-wider font-bold">
+                            Stage {st.num}
+                          </span>
+                          <span className="text-xs">
+                            {isPassed ? "✓" : isActive ? "⏳" : "○"}
+                          </span>
+                        </div>
+                        <p className="font-display text-xs font-semibold text-ink mt-0.5">
+                          {st.num}. {st.name}
+                        </p>
+                        <p className="font-body text-[10px] text-ink-soft mt-0.5 line-clamp-1">
+                          {tele?.message || st.desc}
+                        </p>
+                        {tele && tele.elapsed_seconds > 0 && (
+                          <p className="font-util text-[9px] text-emerald-700 font-mono mt-1">
+                            ⏱ {tele.elapsed_seconds}s
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Completion Result Card & Previews */}
+            {e2eResult && (
+              <div className="bg-paper p-5 border border-emerald-300 rounded-xs space-y-4 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-line pb-3">
+                  <div>
+                    <span className="font-util text-[9px] uppercase tracking-wider text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 border border-emerald-200">
+                      Publication Ready · Score: {e2eResult.overall_quality_score}/100
+                    </span>
+                    <h3 className="font-display text-base font-semibold text-ink mt-1">
+                      {e2eResult.title}
+                    </h3>
+                    <p className="font-body text-xs text-ink-soft">
+                      {e2eResult.department_or_lab} · {e2eResult.total_pages} Pages Rendered in {e2eResult.execution_time_seconds}s
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {e2eResult.pdf_url && (
+                      <a
+                        href={e2eResult.pdf_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-util text-eyebrow uppercase tracking-wider text-paper bg-emerald-700 hover:bg-emerald-800 px-4 py-2 font-bold flex items-center gap-1.5"
+                      >
+                        <span>📥</span> Download PDF
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEndToEndOpen(false);
+                        setE2eResult(null);
+                      }}
+                      className="font-util text-eyebrow uppercase tracking-wider text-ink border border-line px-4 py-2 hover:bg-paper-3 cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+
+                {/* Rendered Page Thumbnails */}
+                {e2eResult.page_previews && e2eResult.page_previews.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="font-util text-[10px] uppercase tracking-wider text-ink-soft font-semibold">
+                      Rendered Publication Pages ({e2eResult.page_previews.length}):
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                      {e2eResult.page_previews.map((previewUrl: string, idx: number) => (
+                        <div key={idx} className="border border-line bg-paper-3 p-1 rounded-xs space-y-1">
+                          <img
+                            src={previewUrl}
+                            alt={`Page ${idx + 1}`}
+                            className="w-full h-32 object-cover border border-line shadow-2xs"
+                          />
+                          <p className="font-util text-[9px] text-center text-ink-soft uppercase font-bold">
+                            Page {idx + 1}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -5,10 +5,8 @@ Handles:
 1. One-Click Full Auto-Generation for Event Magazine (Title, Description, Writeup, Captions, TOC)
 2. Individual field assistance fallbacks
 """
-import os
 import re
 import json
-import httpx
 from typing import List, Dict, Any, Optional
 
 from sqlalchemy import select
@@ -18,46 +16,66 @@ from app.core.database import async_session_maker
 from app.core.logging import logger
 from app.modules.magazine.models import MagazineTemplate, DEFAULT_SECTION_SCHEMA, DEFAULT_STYLE_RULES
 from app.modules.magazine.style_guide import (
-    FEW_SHOT_EXAMPLES,
     get_best_matching_few_shot,
 )
+from app.modules.magazine.llm_provider import call_llm
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or ""
-
-
-async def get_active_template(db: AsyncSession | None = None) -> dict:
+async def get_active_template(
+    db: AsyncSession | None = None,
+    department_id: int | None = None,
+    template_id: int | None = None,
+) -> dict:
     """
-    Fetches the currently active MagazineTemplate from the database.
+    Fetches the active MagazineTemplate from the database.
+    Prioritizes specific template_id, then department_id, then global active template.
     Fallback to defaults if unavailable.
     """
+    async def _query_template(session: AsyncSession):
+        if template_id is not None:
+            stmt = select(MagazineTemplate).where(MagazineTemplate.id == template_id)
+            res = (await session.execute(stmt)).scalars().first()
+            if res:
+                return res
+        if department_id is not None:
+            stmt = select(MagazineTemplate).where(
+                MagazineTemplate.department_id == department_id,
+                MagazineTemplate.is_active == True,
+            )
+            res = (await session.execute(stmt)).scalars().first()
+            if res:
+                return res
+        stmt = select(MagazineTemplate).where(MagazineTemplate.is_active == True)
+        return (await session.execute(stmt)).scalars().first()
+
     try:
         if db:
-            stmt = select(MagazineTemplate).where(MagazineTemplate.is_active == True)
-            tmpl = (await db.execute(stmt)).scalars().first()
-            if tmpl:
-                return {
-                    "name": tmpl.name,
-                    "section_schema": tmpl.section_schema or DEFAULT_SECTION_SCHEMA,
-                    "style_rules": tmpl.style_rules or DEFAULT_STYLE_RULES,
-                    "example_outputs": tmpl.example_outputs or {},
-                }
+            tmpl = await _query_template(db)
         else:
             async with async_session_maker() as session:
-                stmt = select(MagazineTemplate).where(MagazineTemplate.is_active == True)
-                tmpl = (await session.execute(stmt)).scalars().first()
-                if tmpl:
-                    return {
-                        "name": tmpl.name,
-                        "section_schema": tmpl.section_schema or DEFAULT_SECTION_SCHEMA,
-                        "style_rules": tmpl.style_rules or DEFAULT_STYLE_RULES,
-                        "example_outputs": tmpl.example_outputs or {},
-                    }
+                tmpl = await _query_template(session)
+
+        if tmpl:
+            return {
+                "id": tmpl.id,
+                "name": tmpl.name,
+                "department_id": tmpl.department_id,
+                "department_slug": tmpl.department_slug,
+                "template_family": tmpl.template_family,
+                "page_budget": tmpl.page_budget,
+                "section_schema": tmpl.section_schema or DEFAULT_SECTION_SCHEMA,
+                "style_rules": tmpl.style_rules or DEFAULT_STYLE_RULES,
+                "example_outputs": tmpl.example_outputs or {},
+            }
     except Exception as e:
         logger.warning(f"Could not load active MagazineTemplate from DB: {e}. Using defaults.")
 
     return {
+        "id": None,
         "name": "SIET Standard Issue Template",
+        "department_id": None,
+        "department_slug": None,
+        "template_family": "academic_digest",
+        "page_budget": 4,
         "section_schema": DEFAULT_SECTION_SCHEMA,
         "style_rules": DEFAULT_STYLE_RULES,
         "example_outputs": {},
@@ -67,47 +85,14 @@ async def get_active_template(db: AsyncSession | None = None) -> dict:
 
 async def _call_llm(prompt: str, model_name: str = "gemini-1.5-flash") -> str:
     """
-    Executes prompt using available LLM API (Gemini or OpenAI).
+    Executes prompt using the configured magazine LLM provider.
+
+    Supported providers are selected by MAGAZINE_LLM_PROVIDER:
+    ollama, gemini, openai, auto, none. In auto mode this preserves the
+    previous Gemini/OpenAI preference before falling back to Ollama.
     If no API key is set, returns empty string to trigger intelligent rule-based fallback.
     """
-    if GEMINI_API_KEY:
-        try:
-            target_model = model_name if "gemini" in model_name else "gemini-1.5-flash"
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
-            payload = {"contents": [{"parts": [{"text": prompt}]}]}
-            async with httpx.AsyncClient(timeout=25.0) as client:
-                res = await client.post(url, json=payload)
-
-                if res.status_code == 200:
-                    data = res.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        text = candidates[0]["content"]["parts"][0]["text"]
-                        return text.strip()
-        except Exception as e:
-            logger.warning(f"Gemini API call failed: {e}. Using fallback engine.")
-
-    if OPENAI_API_KEY:
-        try:
-            url = "https://api.openai.com/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": "gpt-3.5-turbo",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.7,
-            }
-            async with httpx.AsyncClient(timeout=25.0) as client:
-                res = await client.post(url, headers=headers, json=payload)
-                if res.status_code == 200:
-                    data = res.json()
-                    return data["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            logger.warning(f"OpenAI API call failed: {e}. Using fallback engine.")
-
-    return ""
+    return await call_llm(prompt, model_name=model_name)
 
 
 # ─── ONE-CLICK AUTO-GENERATE FULL MAGAZINE CONTENT ───────────────────────────
@@ -233,7 +218,7 @@ Only return valid JSON, no extra text."""
         except Exception as e:
             logger.warning(f"Failed to parse LLM JSON output: {e}. Using rule fallback.")
 
-    # Rule-Based High-Quality Fallback Generator with Digest Word Budgets
+    # Rule-Based High-Quality Fallback Generator with Editorial Word Budgets
     date_str = f" held on {event_date}" if event_date else ""
     event_str = event_name if event_name else "Campus Event"
 
@@ -246,14 +231,21 @@ Only return valid JSON, no extra text."""
 
     writeup_headline = f"Innovation & Excellence: Key Moments from {event_str}"
     notes_paragraphs = [p.strip() for p in raw_notes.split("\n") if p.strip()]
-    first_note = notes_paragraphs[0] if notes_paragraphs else "Interactive technical demonstrations."
-    writeup_text_raw = f"{writeup_headline}\n\n{first_note}"
+    if notes_paragraphs:
+        writeup_body = "\n\n".join(notes_paragraphs[:5])
+    else:
+        writeup_body = (
+            f"The proceedings at {event_str} highlighted impactful academic engineering initiatives and student innovation. "
+            f"Faculty leaders, student project teams, and invited delegates collaborated across interdisciplinary tracks, "
+            f"advancing state-of-the-art developments and presenting applied research prototypes."
+        )
+    writeup_text_raw = f"{writeup_headline}\n\n{writeup_body}"
 
-    title_clean = await _enforce_word_budget_with_retry("magazine_issue_title", title_gen, max_words=12)
-    desc_clean = await _enforce_word_budget_with_retry("description", desc_gen, max_words=40)
-    headline_clean = await _enforce_word_budget_with_retry("writeup_headline", writeup_headline, max_words=12)
-    writeup_clean = await _enforce_word_budget_with_retry("writeup_text", writeup_text_raw, max_words=60)
-    toc_clean = await _enforce_word_budget_with_retry("toc_summary", f"Special issue covering {event_str}.", max_words=15)
+    title_clean = await _enforce_word_budget_with_retry("magazine_issue_title", title_gen, max_words=18)
+    desc_clean = await _enforce_word_budget_with_retry("description", desc_gen, max_words=80)
+    headline_clean = await _enforce_word_budget_with_retry("writeup_headline", writeup_headline, max_words=18)
+    writeup_clean = await _enforce_word_budget_with_retry("writeup_text", writeup_text_raw, max_words=500)
+    toc_clean = await _enforce_word_budget_with_retry("toc_summary", f"Special issue covering {event_str}.", max_words=25)
 
     writeup_html = f"""<article class="prose max-w-none space-y-2 font-sans text-ink">
   <h2 className="text-lg font-bold text-accent border-b border-line pb-1">{headline_clean}</h2>
@@ -389,7 +381,7 @@ async def generate_grounded_magazine_content(
         res["overall_confidence_band"] = "do_not_auto_publish"
         return res
 
-    # Grounded LLM Prompting with Digest Word Budgets & Active Template Examples
+    # Grounded LLM Prompting with Editorial Word Budgets & Active Template Examples
     tmpl = await get_active_template(db)
     style_rules_str = json.dumps(tmpl.get("style_rules", {}), indent=2)
 
@@ -398,8 +390,8 @@ async def generate_grounded_magazine_content(
         template_examples_block = f"\n=== ACTIVE TEMPLATE EXEMPLAR SECTION OUTPUTS (Follow tone/structure/length) ===\n{json.dumps(tmpl['example_outputs'], indent=2)}\n"
 
     prompt = f"""You are an elite editorial writer for SIET News & Magazines.
-Your task is to generate short digest-style magazine content grounded STRICTLY in the provided SOURCE PASSAGES.
-Do NOT write long articles. Follow the strict word budgets below.
+Your task is to generate polished, publication-grade magazine content grounded STRICTLY in the provided SOURCE PASSAGES.
+Follow the editorial word budgets below.
 
 === FACTUAL SOURCE PASSAGES (Ground Truth) ===
 {grounding_text_block}
@@ -409,20 +401,20 @@ Event Name: {event_name}
 Event Date: {event_date}
 Raw Notes: {raw_notes}
 
-=== DIGEST WORD BUDGET CONSTRAINTS ===
-- magazine_issue_title: 6–12 words max
-- description: 25–40 words max (short overview)
-- writeup: 30–60 words max (2-3 sentence digest blurb, NOT a full article)
-- captions: 8–15 words max per caption
-- toc_summary: 10–15 words max
+=== EDITORIAL WORD BUDGET CONSTRAINTS ===
+- magazine_issue_title: 6–18 words max
+- description: 30–80 words max (executive overview)
+- writeup: 250–500 words (structured feature article with headlines and paragraphs)
+- captions: 8–20 words max per caption
+- toc_summary: 10–25 words max
 
 Return the output ONLY as valid JSON in this exact structure:
 {{
   "magazine_issue_title": "short catchy title for this issue",
-  "description": "25-40 word event overview grounded in sources",
-  "writeup": "30-60 word digest blurb with headline grounded in sources",
+  "description": "30-80 word event overview grounded in sources",
+  "writeup": "250-500 word feature story with headline grounded in sources",
   "captions": ["one short caption per photo"],
-  "toc_summary": "10-15 word line summarizing the issue"
+  "toc_summary": "10-25 word line summarizing the issue"
 }}
 
 Only return valid JSON, no extra text."""
@@ -444,16 +436,16 @@ Only return valid JSON, no extra text."""
                     headline = lines[0]
 
             # Enforce Word Budgets with Retries
-            title_gen = await _enforce_word_budget_with_retry("magazine_issue_title", parsed.get("magazine_issue_title", f"{event_name} Special Edition"), max_words=12)
-            desc_gen = await _enforce_word_budget_with_retry("description", parsed.get("description", f"Highlights from {event_name}."), max_words=40)
-            headline_gen = await _enforce_word_budget_with_retry("writeup_headline", headline, max_words=12)
-            writeup_gen = await _enforce_word_budget_with_retry("writeup_text", writeup_raw, max_words=60)
-            toc_gen = await _enforce_word_budget_with_retry("toc_summary", parsed.get("toc_summary", f"Coverage of {event_name}."), max_words=15)
+            title_gen = await _enforce_word_budget_with_retry("magazine_issue_title", parsed.get("magazine_issue_title", f"{event_name} Special Edition"), max_words=18)
+            desc_gen = await _enforce_word_budget_with_retry("description", parsed.get("description", f"Highlights from {event_name}."), max_words=80)
+            headline_gen = await _enforce_word_budget_with_retry("writeup_headline", headline, max_words=18)
+            writeup_gen = await _enforce_word_budget_with_retry("writeup_text", writeup_raw, max_words=500)
+            toc_gen = await _enforce_word_budget_with_retry("toc_summary", parsed.get("toc_summary", f"Coverage of {event_name}."), max_words=25)
 
             raw_caps = parsed.get("captions", [])
             shortened_caps = []
             for idx, cap in enumerate(raw_caps):
-                shortened_caps.append(await _enforce_word_budget_with_retry(f"caption_{idx+1}", cap, max_words=15))
+                shortened_caps.append(await _enforce_word_budget_with_retry(f"caption_{idx+1}", cap, max_words=20))
 
             formatted_paragraphs = []
             for line in writeup_gen.split("\n"):
@@ -599,10 +591,10 @@ FACTUAL GROUND TRUTH PASSAGES:
 INSTRUCTIONS:
 1. Address the admin's feedback comment explicitly while keeping content strictly factual.
 2. Follow word budget constraints:
-   - title/magazine_issue_title: 6–12 words max
-   - description: 25–40 words max
-   - writeup: 30–60 words max
-   - toc_summary: 10–15 words max
+    - title/magazine_issue_title: 6–18 words max
+    - description: 30–80 words max
+    - writeup: 250–500 words
+    - toc_summary: 10–25 words max
 
 Return ONLY the revised text string for section '{section_key}'. No extra explanation."""
 
@@ -616,8 +608,8 @@ Return ONLY the revised text string for section '{section_key}'. No extra explan
             revised_text = f"{current_content.strip()} (Updated with feedback: {feedback_comment.strip()})"
 
     # Budget Enforce
-    budget_map = {"title": 12, "magazine_issue_title": 12, "description": 40, "writeup": 60, "toc_summary": 15}
-    max_b = budget_map.get(section_key, 60)
+    budget_map = {"title": 18, "magazine_issue_title": 18, "description": 80, "writeup": 500, "toc_summary": 25}
+    max_b = budget_map.get(section_key, 500)
     revised_clean = await _enforce_word_budget_with_retry(section_key, revised_text, max_words=max_b)
 
     conf_score = round(min(max(float(max_score), 0.0), 1.0), 2)
@@ -635,4 +627,3 @@ Return ONLY the revised text string for section '{section_key}'. No extra explan
         "simple_explanation": f"Revised based on comment: '{feedback_comment}'. Grounded in '{top_f}' page {top_p}.",
         "sources": sources,
     }
-

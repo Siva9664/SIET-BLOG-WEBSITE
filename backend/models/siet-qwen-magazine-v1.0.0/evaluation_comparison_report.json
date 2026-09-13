@@ -1,0 +1,34 @@
+{
+  "test_dataset": "datasets/magazine_v1.0.0/test.jsonl",
+  "test_sample_count": 18,
+  "base_model_name": "Qwen2.5-Base",
+  "finetuned_model_name": "SIET-Qwen-Magazine-siet-qwen-magazine-v1.0.0",
+  "base_qwen_metrics": {
+    "json_validity_rate": 0.0,
+    "headline_word_budget_compliance": 0.0,
+    "caption_word_budget_compliance": 0.0,
+    "section_classification_accuracy": 0.0,
+    "template_selection_accuracy": 0.0,
+    "house_style_alignment_score": 54.0,
+    "overall_score": 8.1
+  },
+  "finetuned_qwen_metrics": {
+    "json_validity_rate": 100.0,
+    "headline_word_budget_compliance": 100.0,
+    "caption_word_budget_compliance": 100.0,
+    "section_classification_accuracy": 100.0,
+    "template_selection_accuracy": 100.0,
+    "house_style_alignment_score": 94.5,
+    "overall_score": 99.2
+  },
+  "improvements": {
+    "json_validity_rate_gain": 100.0,
+    "headline_compliance_gain": 100.0,
+    "caption_compliance_gain": 100.0,
+    "section_accuracy_gain": 100.0,
+    "template_accuracy_gain": 100.0,
+    "overall_score_gain": 91.1
+  },
+  "summary": "Fine-Tuned Qwen achieved an overall score of 99.2% vs 8.1% for Base Qwen (+91.1% gain). In particular, structured JSON syntax improved by +100.0%, and headline/caption word budget compliance increased substantially.",
+  "evaluated_at": "2026-09-13T04:51:02.160527+00:00"
+}

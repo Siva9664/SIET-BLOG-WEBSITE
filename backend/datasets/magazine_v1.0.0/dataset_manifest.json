@@ -1,0 +1,42 @@
+{
+  "dataset_name": "siet_magazine_qlora_dataset",
+  "dataset_version": "v1.0.0",
+  "created_at": "2026-09-13T04:50:31.793458+00:00",
+  "total_examples": 157,
+  "split_counts": {
+    "train": 121,
+    "val": 18,
+    "test": 18
+  },
+  "task_counts": {
+    "raw_to_structured": 40,
+    "raw_to_headline": 35,
+    "raw_to_caption": 35,
+    "section_classification": 35,
+    "template_selection": 6,
+    "photo_selection": 6
+  },
+  "files": {
+    "train": {
+      "file": "train.jsonl",
+      "count": 121,
+      "sha256": "bc3e244d0127c8dca01b94d7ee933009c9ff78d667cab0636d1b0a7e13b15303"
+    },
+    "val": {
+      "file": "val.jsonl",
+      "count": 18,
+      "sha256": "1a1848fa7be5fba839eb7555445d16b92a98e89af78e1a57b125c6dc44da2ce4"
+    },
+    "test": {
+      "file": "test.jsonl",
+      "count": 18,
+      "sha256": "e54473b3daa64ea601b0f7ea9d7afcde22ced1adef21b79faa66465dae40ee24"
+    }
+  },
+  "config": {
+    "train_ratio": 0.8,
+    "val_ratio": 0.1,
+    "test_ratio": 0.1,
+    "seed": 42
+  }
+}

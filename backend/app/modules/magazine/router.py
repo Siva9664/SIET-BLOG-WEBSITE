@@ -23,6 +23,7 @@ import os
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel
 from fastapi import (
@@ -64,6 +65,23 @@ from app.modules.magazine.ai_service import (
     generate_toc_entry,
 )
 from app.modules.magazine.file_parser import parse_event_file, parse_template_file
+from app.modules.magazine.template_selection import select_template
+from app.modules.magazine.photo_ranker import rank_photos_for_article
+from app.modules.magazine.layout_planner import plan_page_layout
+from app.modules.magazine.multi_page_planner import plan_multi_page_magazine
+from app.modules.magazine.validator import (
+    validate_page_visual_quality,
+    render_and_validate_page_with_recovery,
+)
+from app.modules.magazine.schemas import (
+    TemplateSelectionRequest, MagazineTemplateCreate,
+    PhotoSelectionRequest, PhotoSelectionResponse,
+    LayoutPlanRequest, LayoutPlanResponse,
+    MultiPagePlanRequest, MultiPagePlanResponse,
+    PageQCRequest, VisualQualityReport, PageRecoveryResult,
+    EndToEndMagazineRequest, EndToEndMagazineResponse, PipelineProgressStage,
+)
+from app.modules.magazine.end_to_end_pipeline import run_end_to_end_magazine_pipeline
 from app.shared.auth.dependencies import require_admin, require_super_admin
 from app.shared.exceptions.custom import NotFoundException
 from app.shared.types.content import ContentKind, MagazineType
@@ -112,6 +130,9 @@ def _magazine_row(m: Magazine) -> dict:
         "description": m.description,
         "eventName": m.event_name,
         "eventDate": m.event_date.isoformat() if m.event_date else None,
+        "departmentId": m.department_id,
+        "departmentName": m.department_name,
+        "targetPageBudget": m.target_page_budget,
         "year": m.publication_year,
         "type": m.magazine_type.value if hasattr(m.magazine_type, "value") else str(m.magazine_type),
         "status": m.status,
@@ -336,11 +357,17 @@ async def create_event_magazine(
     event_date: str = Form(None),          # ISO date string e.g. 2026-08-14
     magazine_type: str = Form("special"),
     publication_year: int = Form(datetime.now().year),
+    department_id: int | None = Form(None),
+    department_name: str | None = Form(None),
+    target_page_budget: int = Form(4),
     gallery_images_json: str = Form(None),
+    writeup_headline: str | None = Form(None),
+    writeup_text: str | None = Form(None),
+    writeup_html: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin),
 ):
-    """Step 1: Create a new event magazine entry. Pre-populates gallery images if extracted."""
+    """Step 1: Create a new event magazine entry. Pre-populates gallery images and writeup if provided."""
     slug = await _unique_slug(db, slugify(title))
     try:
         mt = MagazineType(magazine_type.lower())
@@ -361,12 +388,24 @@ async def create_event_magazine(
         except Exception:
             pass
 
+    initial_body = []
+    if writeup_text or writeup_html or writeup_headline:
+        initial_body.append({
+            "headline": writeup_headline or title,
+            "text": writeup_text or "",
+            "html": writeup_html or "",
+            "caption": writeup_headline or "Featured Article",
+        })
+
     mag = Magazine(
         title=title.strip(),
         slug=slug,
         description=description.strip() if description else None,
         event_name=event_name.strip(),
         event_date=parsed_event_date,
+        department_id=department_id,
+        department_name=department_name.strip() if department_name else None,
+        target_page_budget=target_page_budget,
         magazine_type=mt,
         publication_year=publication_year,
         issue_date=parsed_event_date or datetime.now(timezone.utc),
@@ -374,9 +413,9 @@ async def create_event_magazine(
         is_featured=True,
         featured_until=datetime.now(timezone.utc) + timedelta(days=MAGAZINE_FEATURED_DAYS),
         cover_pages=[],
-        body_pages=[],
+        body_pages=initial_body,
         gallery_images=initial_gallery,
-        page_count=len(initial_gallery),
+        page_count=len(initial_gallery) + (1 if initial_body else 0),
     )
     db.add(mag)
     await db.commit()
@@ -626,6 +665,260 @@ async def get_template_blueprint(
     })
 
 
+@admin_router.post("/templates/select")
+@router.post("/templates/select")
+async def api_select_magazine_template(
+    payload: TemplateSelectionRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Intelligent template selection endpoint.
+    Dynamically recommends and validates a template candidate against declared metadata.
+    Output conforms to:
+    {
+      "template_id": "...",
+      "page_type": "...",
+      "confidence": 0.95,
+      "reason": "..."
+    }
+    """
+    try:
+        res = await select_template(
+            content=payload.content,
+            department=payload.department,
+            lab=payload.lab,
+            department_or_lab=payload.department_or_lab,
+            section=payload.section,
+            page_type=payload.page_type,
+            available_images=payload.available_images,
+            candidate_templates=payload.candidate_templates,
+            db=db,
+            use_llm=payload.use_llm,
+        )
+        return success(res)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+
+
+@admin_router.post("/photos/rank")
+@router.post("/photos/rank")
+async def api_rank_magazine_photos(
+    payload: PhotoSelectionRequest,
+):
+    """
+    Intelligent real-photo selection and ranking endpoint.
+    Scores photographs by multimodal SigLIP relevance and photographic quality
+    (resolution, sharpness, exposure, orientation, duplicate detection).
+    Strictly prefers real photographs; never generates synthetic AI photos.
+    """
+    res = await rank_photos_for_article(
+        article_content=payload.article_content,
+        photos=payload.photos,
+        top_k=payload.top_k,
+        filter_duplicates=payload.filter_duplicates,
+        min_quality_threshold=payload.min_quality_threshold,
+    )
+    return success(res)
+
+
+@admin_router.post("/layout/plan")
+@router.post("/layout/plan")
+async def api_plan_magazine_layout(
+    payload: LayoutPlanRequest,
+):
+    """
+    Magazine layout planning endpoint.
+    Converts article content and candidate photographs into a deterministic PagePlan
+    and rigorously validates region existence, text length, image count, and aspect ratios.
+    """
+    plan, validation = await plan_page_layout(
+        content=payload.content,
+        department_or_lab=payload.department_or_lab,
+        selected_template=payload.selected_template,
+        available_images=payload.available_images,
+        template_regions=payload.template_regions,
+        text_limits=payload.text_limits,
+        image_constraints=payload.image_constraints,
+        use_llm=payload.use_llm,
+    )
+    return success({
+        "plan": plan.model_dump(),
+        "validation": validation.model_dump(),
+    })
+
+
+@admin_router.post("/pages/plan")
+@router.post("/pages/plan")
+async def api_plan_multi_page_magazine(
+    payload: MultiPagePlanRequest,
+):
+    """
+    Automatic multi-page magazine planning endpoint.
+    Determines how many pages are required, packs content by template capacity,
+    maintains section ordering, and avoids repeating identical layouts.
+    """
+    response = plan_multi_page_magazine(
+        structured_content=payload.structured_content,
+        department_or_lab=payload.department_or_lab,
+        available_images=payload.available_images,
+        available_templates=payload.available_templates,
+        template_constraints=payload.template_constraints,
+        magazine_section_order=payload.magazine_section_order,
+        max_pages=payload.max_pages,
+        start_page_number=payload.start_page_number,
+    )
+    return success(response.model_dump())
+
+
+@admin_router.post("/qc/page")
+@router.post("/qc/page")
+async def api_validate_page_visual_quality(
+    payload: PageQCRequest,
+):
+    """
+    Automatic visual quality control endpoint for rendered magazine pages.
+    Checks text overflow, image overflow, missing assets, image distortion,
+    low-resolution images, overlapping regions, boundaries, excessive empty space,
+    small text, and margins. Returns quality scores (0-100) and issues list.
+    Optionally executes closed-loop recovery with regeneration limits.
+    """
+    import fitz
+    from app.modules.magazine.renderer import render_page_from_plan
+
+    doc = fitz.open()
+    if payload.with_recovery:
+        result = render_and_validate_page_with_recovery(
+            doc=doc,
+            page_plan=payload.plan,
+            template_metadata=payload.template_metadata,
+            page_num=payload.page_num,
+            max_attempts=payload.max_attempts,
+            thresholds=payload.thresholds,
+        )
+        return success(result.model_dump())
+    else:
+        page = render_page_from_plan(
+            doc,
+            payload.plan,
+            payload.template_metadata,
+            payload.page_num,
+        )
+        report = validate_page_visual_quality(
+            page=page,
+            page_plan=payload.plan,
+            template_metadata=payload.template_metadata,
+            thresholds=payload.thresholds,
+            page_num=payload.page_num,
+        )
+        return success(report.model_dump())
+
+
+@admin_router.get("/templates")
+@router.get("/templates")
+async def api_list_magazine_templates(
+    department_id: int | None = Query(None),
+    department_slug: str | None = Query(None),
+    is_active: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+):
+    """List magazine templates with metadata."""
+    stmt = select(MagazineTemplate)
+    if is_active is not None:
+        stmt = stmt.where(MagazineTemplate.is_active == is_active)
+    if department_id is not None:
+        stmt = stmt.where(MagazineTemplate.department_id == department_id)
+    if department_slug:
+        stmt = stmt.where(MagazineTemplate.department_slug == department_slug)
+
+    templates = list((await db.execute(stmt)).scalars().all())
+    out = []
+    for tmpl in templates:
+        out.append({
+            "id": tmpl.id,
+            "name": tmpl.name,
+            "department_id": tmpl.department_id,
+            "department_slug": tmpl.department_slug,
+            "template_family": tmpl.template_family,
+            "page_budget": tmpl.page_budget,
+            "description": tmpl.description,
+            "is_active": tmpl.is_active,
+            "section_schema": tmpl.section_schema,
+            "style_rules": tmpl.style_rules,
+            "template_metadata": tmpl.effective_metadata,
+            "example_outputs": tmpl.example_outputs or {},
+            "updated_at": tmpl.updated_at.isoformat() if tmpl.updated_at else None,
+        })
+    return success(out)
+
+
+@admin_router.post("/templates")
+async def api_create_magazine_template(
+    payload: MagazineTemplateCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    """Create a new magazine template with metadata."""
+    tmpl = MagazineTemplate(
+        name=payload.name,
+        department_id=payload.department_id,
+        department_slug=payload.department_slug,
+        template_family=payload.template_family,
+        page_budget=payload.page_budget,
+        description=payload.description,
+        is_active=True,
+        section_schema=payload.section_schema,
+        style_rules=payload.style_rules,
+        template_metadata=payload.template_metadata,
+        example_outputs=payload.example_outputs or {},
+    )
+    db.add(tmpl)
+    await db.commit()
+    await db.refresh(tmpl)
+    return success({
+        "id": tmpl.id,
+        "name": tmpl.name,
+        "department_id": tmpl.department_id,
+        "department_slug": tmpl.department_slug,
+        "template_family": tmpl.template_family,
+        "page_budget": tmpl.page_budget,
+        "description": tmpl.description,
+        "is_active": tmpl.is_active,
+        "section_schema": tmpl.section_schema,
+        "style_rules": tmpl.style_rules,
+        "template_metadata": tmpl.effective_metadata,
+        "example_outputs": tmpl.example_outputs or {},
+        "updated_at": tmpl.updated_at.isoformat() if tmpl.updated_at else None,
+    })
+
+
+@admin_router.get("/templates/{template_id}")
+@router.get("/templates/{template_id}")
+async def api_get_single_magazine_template(
+    template_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get single magazine template by ID."""
+    tmpl = await db.get(MagazineTemplate, template_id)
+    if not tmpl:
+        raise NotFoundException(f"Magazine template #{template_id} not found.")
+    return success({
+        "id": tmpl.id,
+        "name": tmpl.name,
+        "department_id": tmpl.department_id,
+        "department_slug": tmpl.department_slug,
+        "template_family": tmpl.template_family,
+        "page_budget": tmpl.page_budget,
+        "description": tmpl.description,
+        "is_active": tmpl.is_active,
+        "section_schema": tmpl.section_schema,
+        "style_rules": tmpl.style_rules,
+        "template_metadata": tmpl.effective_metadata,
+        "example_outputs": tmpl.example_outputs or {},
+        "updated_at": tmpl.updated_at.isoformat() if tmpl.updated_at else None,
+    })
+
+
+
 
 @admin_router.post("/{magazine_id}/cover")
 async def upload_cover_pages(
@@ -782,10 +1075,11 @@ async def upload_magazine_issue(
 @admin_router.post("/{magazine_id}/publish")
 async def publish_magazine(
     magazine_id: int,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin),
 ):
-    """Publish a draft magazine. Sets status=published and stamps published_at."""
+    """Publish a draft magazine. Sets status=published and stamps published_at. Auto-compiles event issue if needed."""
     mag = await db.get(Magazine, magazine_id)
     if not mag:
         raise NotFoundException("Magazine not found.")
@@ -796,7 +1090,27 @@ async def publish_magazine(
     mag.is_featured = True
     mag.featured_until = now + timedelta(days=MAGAZINE_FEATURED_DAYS)
     await db.commit()
+
+    # If this is an Event Magazine with missing PDF or 0 pages, auto-compile publication
+    if not mag.pdf_url or mag.page_count == 0:
+        from app.modules.magazine.pipeline import compile_and_process_event_magazine
+        background_tasks.add_task(compile_and_process_event_magazine, magazine_id)
+
     return {"message": "Magazine published.", "id": str(mag.id), "isFeatured": mag.is_featured}
+
+
+@admin_router.post("/{magazine_id}/compile")
+async def api_compile_magazine(
+    magazine_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    """Compiles and renders a full multi-page event magazine publication immediately."""
+    from app.modules.magazine.pipeline import compile_and_process_event_magazine
+    res = await compile_and_process_event_magazine(magazine_id)
+    if res.get("status") == "error":
+        raise HTTPException(status_code=500, detail=res.get("message", "Compilation failed"))
+    return success(res)
 
 
 @admin_router.post("/{magazine_id}/unpublish")
@@ -1200,7 +1514,9 @@ async def api_auto_generate_magazine(
 
     # 2. Template Selection (Default to Active / Blueprint)
     template_bytes = b""
-    siet_tmpl_path = "/home/shiva/Downloads/SIET-Magazine-Template.docx"
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    static_tmpl_path = os.path.join(base_dir, "static", "templates", "SIET-Magazine-Template.docx")
+    siet_tmpl_path = static_tmpl_path if os.path.exists(static_tmpl_path) else "/home/shiva/Downloads/SIET-Magazine-Template.docx"
 
     if payload.template_id:
         record = await db.get(DocxTemplateBlueprint, payload.template_id)
@@ -1273,7 +1589,112 @@ async def api_auto_generate_magazine(
     })
 
 
+@admin_router.post("/generate/end-to-end")
+@router.post("/generate/end-to-end")
+async def api_generate_end_to_end_magazine(
+    file: Optional[UploadFile] = File(None),
+    photos: Optional[List[UploadFile]] = File(None),
+    templates: Optional[List[UploadFile]] = File(None),
+    event_name: Optional[str] = Form(None),
+    event_date: Optional[str] = Form(None),
+    department_or_lab: Optional[str] = Form("AI & Data Science Lab"),
+    raw_notes: Optional[str] = Form(None),
+    target_page_budget: int = Form(5),
+    publish_immediately: bool = Form(True),
+    use_llm: bool = Form(True),
+    max_qc_attempts: int = Form(3),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Complete End-to-End AI Magazine Generation Pipeline.
+    Integrates Document Parsing, Qwen Content Understanding, Template Selection,
+    SigLIP Real-Photo Matching, Multi-Page & Layout Planning, Template-Driven Rendering,
+    Visual Quality Control (10 checks + recovery), and Multi-Page PDF compilation.
+    """
+    file_bytes: Optional[bytes] = None
+    filename: Optional[str] = None
+    if file and file.filename:
+        file_bytes = await file.read()
+        filename = file.filename
+
+    saved_photos: List[Dict[str, Any]] = []
+    if photos:
+        os.makedirs("uploads/magazines", exist_ok=True)
+        for p in photos:
+            if p.filename:
+                p_bytes = await p.read()
+                ext = os.path.splitext(p.filename)[1].lower() or ".jpg"
+                p_id = f"photo_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}"
+                p_name = f"{p_id}{ext}"
+                p_path = os.path.join("uploads/magazines", p_name)
+                with open(p_path, "wb") as f_out:
+                    f_out.write(p_bytes)
+                saved_photos.append({
+                    "id": p_id,
+                    "url": f"/uploads/magazines/{p_name}",
+                    "file_path": p_path,
+                    "filename": p.filename,
+                })
+
+    custom_tmpl_items: List[Dict[str, Any]] = []
+    if templates:
+        for t in templates:
+            if t.filename:
+                t_bytes = await t.read()
+                custom_tmpl_items.append({
+                    "filename": t.filename,
+                    "bytes": t_bytes,
+                })
+
+    result = await run_end_to_end_magazine_pipeline(
+        file_bytes=file_bytes,
+        filename=filename,
+        raw_notes=raw_notes,
+        real_photos=saved_photos,
+        custom_templates=custom_tmpl_items,
+        department_or_lab=department_or_lab or "AI & Data Science Lab",
+        event_name=event_name,
+        event_date=event_date,
+        target_page_budget=target_page_budget,
+        publish_immediately=publish_immediately,
+        use_llm=use_llm,
+        max_qc_attempts=max_qc_attempts,
+        db=db,
+    )
+    return success(result.model_dump())
 
 
+@admin_router.post("/generate/end-to-end-json")
+@router.post("/generate/end-to-end-json")
+async def api_generate_end_to_end_magazine_json(
+    payload: EndToEndMagazineRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    JSON entrypoint for End-to-End AI Magazine Generation Pipeline.
+    Accepts raw notes or base64-encoded documents, real photo paths, and parameters.
+    """
+    import base64
+    file_bytes: Optional[bytes] = None
+    if payload.source_file_base64:
+        try:
+            file_bytes = base64.b64decode(payload.source_file_base64)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid base64 payload: {e}")
 
-
+    result = await run_end_to_end_magazine_pipeline(
+        file_bytes=file_bytes,
+        filename=payload.source_filename,
+        raw_notes=payload.raw_notes,
+        real_photos=payload.photos,
+        custom_templates=payload.custom_templates,
+        department_or_lab=payload.department_or_lab or "AI & Data Science Lab",
+        event_name=payload.event_name,
+        event_date=payload.event_date,
+        target_page_budget=payload.target_page_budget,
+        publish_immediately=payload.publish_immediately,
+        use_llm=payload.use_llm,
+        max_qc_attempts=payload.max_qc_attempts,
+        db=db,
+    )
+    return success(result.model_dump())

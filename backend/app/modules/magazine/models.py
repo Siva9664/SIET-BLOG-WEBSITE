@@ -19,6 +19,11 @@ class Magazine(Base, BaseModelMixin):
     event_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     event_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
+    # Department and Multi-Template Support
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("domains.id", ondelete="SET NULL"), nullable=True, index=True)
+    department_name: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    target_page_budget: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
+
     magazine_type: Mapped[MagazineType] = mapped_column(Enum(MagazineType), default=MagazineType.SPECIAL, nullable=False)
     publication_year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     issue_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -155,12 +160,28 @@ class MagazineTemplate(Base, BaseModelMixin):
     __tablename__ = "magazine_templates"
 
     name: Mapped[str] = mapped_column(String(255), nullable=False, default="SIET Standard Issue Template")
+    department_id: Mapped[int | None] = mapped_column(ForeignKey("domains.id", ondelete="SET NULL"), nullable=True, index=True)
+    department_slug: Mapped[str | None] = mapped_column(String(150), nullable=True, index=True)
+    template_family: Mapped[str] = mapped_column(String(100), default="academic_digest", nullable=False, index=True)
+    page_budget: Mapped[int] = mapped_column(Integer, default=4, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     section_schema: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     style_rules: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    template_metadata: Mapped[dict | None] = mapped_column(JSON, default=dict, nullable=True)
     example_outputs: Mapped[dict | None] = mapped_column(JSON, default=dict, nullable=True)
 
     versions: Mapped[List["TemplateVersion"]] = relationship("TemplateVersion", back_populates="template", cascade="all, delete-orphan")
+    embeddings: Mapped[List["TemplateEmbedding"]] = relationship("TemplateEmbedding", back_populates="template", cascade="all, delete-orphan")
+
+    @property
+    def effective_metadata(self) -> dict:
+        """Returns unified template metadata, falling back to style_rules['metadata']."""
+        if self.template_metadata:
+            return dict(self.template_metadata)
+        if isinstance(self.style_rules, dict) and "metadata" in self.style_rules:
+            return dict(self.style_rules["metadata"])
+        return {}
 
 
 
@@ -206,5 +227,18 @@ class TemplateRegion(Base, BaseModelMixin):
     color_palette: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     page: Mapped["TemplatePage"] = relationship("TemplatePage", back_populates="regions")
+
+
+class TemplateEmbedding(Base, BaseModelMixin):
+    __tablename__ = "template_embeddings"
+
+    template_id: Mapped[int] = mapped_column(ForeignKey("magazine_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    section_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    example_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    content_text: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    embedding_model: Mapped[str] = mapped_column(String(100), default="bge-base-en-v1.5", nullable=False)
+
+    template: Mapped["MagazineTemplate"] = relationship("MagazineTemplate", back_populates="embeddings")
 
 

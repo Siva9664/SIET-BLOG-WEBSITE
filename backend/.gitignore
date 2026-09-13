@@ -4,4 +4,8 @@ __pycache__/
 .env
 uploads/*
 !uploads/.gitkeep
-
+training-data/
+venv/
+.venv/
+*.sql
+*.tsbuildinfo

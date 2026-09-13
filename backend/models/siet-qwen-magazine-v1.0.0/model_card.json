@@ -1,0 +1,60 @@
+{
+  "model_name": "siet-qwen-magazine-v1.0.0",
+  "model_version": "v1.0.0",
+  "base_model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "dataset_version": "magazine_v1.0.0",
+  "training_timestamp": "2026-09-13T04:50:44.143104+00:00",
+  "training_loss": 1.4383,
+  "validation_loss": 1.5837,
+  "hyperparameters": {
+    "base_model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "dataset_dir": "datasets/magazine_v1.0.0",
+    "output_dir": "models/siet-qwen-magazine-v1.0.0",
+    "model_version": "v1.0.0",
+    "epochs": 3,
+    "learning_rate": 0.0002,
+    "batch_size": 2,
+    "gradient_accumulation_steps": 4,
+    "warmup_ratio": 0.05,
+    "weight_decay": 0.01,
+    "max_seq_length": 512,
+    "use_qlora": true,
+    "bits": 4,
+    "fp16": false,
+    "bf16": false,
+    "device": "auto",
+    "logging_steps": 10,
+    "save_steps": 50,
+    "eval_steps": 50,
+    "seed": 42,
+    "lora": {
+      "r": 16,
+      "lora_alpha": 32,
+      "lora_dropout": 0.05,
+      "target_modules": [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ],
+      "bias": "none",
+      "task_type": "CAUSAL_LM"
+    }
+  },
+  "evaluation_summary": {
+    "train_samples": 121,
+    "val_samples": 18,
+    "epochs": 3,
+    "learning_rate": 0.0002
+  },
+  "hardware_specs": {
+    "device": "cpu",
+    "cuda_available": false,
+    "torch_version": "2.14.0+cpu",
+    "cpu_cores": 12
+  },
+  "ollama_modelfile_snippet": "# SIET Magazine Qwen Fine-Tuned Modelfile\nFROM Qwen/Qwen2.5-0.5B-Instruct\nADAPTER /home/shiva/SIET-BLOG-WEBSITE/backend/models/siet-qwen-magazine-v1.0.0\nPARAMETER temperature 0.2\nPARAMETER top_p 0.9\nPARAMETER stop \"<|im_end|>\"\nSYSTEM \"\"\"You are the official editorial AI for the SIET Engineering Magazine (Sri Shakthi Institute of Engineering & Technology). Write concise, factual, and polished magazine content following the official institutional style guidelines.\"\"\"\n"
+}

@@ -1,4 +1,4 @@
-export type Domain = { slug: string; name: string; count: number };
+export type Domain = { id?: number; slug: string; name: string; count: number };
 export type Tag = { slug: string; name: string };
 export type Author = {
   id: string;

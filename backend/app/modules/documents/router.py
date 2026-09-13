@@ -7,14 +7,19 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.modules.analysis import analyze_document
 from app.core.database import get_db
 from app.modules.documents.chunker import chunk_document_spans
 from pydantic import BaseModel, Field
 from app.modules.documents.embeddings import backfill_embeddings, embed_text
 from app.modules.documents.models import DocumentChunk, SourceDocument
-from app.modules.documents.parser import parse_document_spans
 from app.modules.documents.reranker import rerank
 from app.modules.documents.retriever import retrieve
+from app.modules.ingestion import (
+    UnsupportedDocumentType,
+    document_to_spans,
+    parse_document,
+)
 from app.shared.auth.dependencies import require_admin
 from app.shared.exceptions.custom import NotFoundException
 from app.shared.responses.helpers import success
@@ -47,18 +52,21 @@ async def upload_source_document(
 ):
     """
     Phase 1 Document Intelligence Endpoint:
-    Uploads source document (PDF, DOCX, TXT), parses page-aware text spans,
-    chunks content while preserving provenance, and persists to DB.
+    Uploads a PDF, DOCX, PPTX, HTML, or text source document, then persists
+    page-aware chunks compatible with the existing RAG retrieval path.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required.")
 
     filename = file.filename
     ext = os.path.splitext(filename)[1].lower()
-    if ext not in [".pdf", ".docx", ".txt"]:
+    if ext not in [".pdf", ".docx", ".pptx", ".html", ".htm", ".txt", ".md"]:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file format '{ext}'. Only .pdf, .docx, and .txt files are supported."
+            detail=(
+                f"Unsupported file format '{ext}'. Supported formats are PDF, DOCX, "
+                "PPTX, HTML, and text."
+            ),
         )
 
     file_bytes = await file.read()
@@ -71,9 +79,17 @@ async def upload_source_document(
     with open(storage_path, "wb") as f:
         f.write(file_bytes)
 
-    # 1. Parse document spans (page-aware)
+    # 1. Parse source document and derive structure without a model call.
     try:
-        spans = parse_document_spans(file_bytes, filename)
+        structured_document = parse_document(
+            file_bytes,
+            filename,
+            file.content_type,
+        )
+        spans = document_to_spans(structured_document)
+        structure = analyze_document(structured_document)
+    except UnsupportedDocumentType as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as e:
         raise HTTPException(
             status_code=400,
@@ -127,6 +143,7 @@ async def upload_source_document(
         "status": doc_record.status,
         "storage_path": doc_record.storage_path,
         "created_at": doc_record.created_at.isoformat(),
+        "structure": structure.to_dict(),
     })
 
 
@@ -279,4 +296,3 @@ async def retrieve_passages(
         "results_count": len(reranked),
         "results": reranked,
     })
-

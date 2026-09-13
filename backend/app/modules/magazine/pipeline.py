@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import os
 import re
+import uuid
 import fitz  # PyMuPDF
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import async_session_maker
 from app.core.logging import logger
 from app.modules.magazine.models import Magazine, MagazinePage, MagazineTOCEntry
+from app.modules.magazine.renderer import render_editorial_magazine_pdf
 
 
 def extract_page_heading(text: str, page_num: int) -> str:
@@ -131,6 +133,118 @@ async def process_magazine_pdf(magazine_id: int, pdf_path: str):
             await session.commit()
 
 
+async def compile_and_process_event_magazine(magazine_id: int) -> dict:
+    """
+    Compiles an Event Magazine into a publication-grade multi-page PDF,
+    creates MagazinePage image rows, builds TOC entries, and publishes the issue.
+    """
+    logger.info(f"[Pipeline] Compiling and processing Event Magazine #{magazine_id}")
+
+    async with async_session_maker() as session:
+        magazine = await session.get(Magazine, magazine_id)
+        if not magazine:
+            logger.error(f"Magazine #{magazine_id} not found.")
+            return {"status": "error", "message": "Magazine not found"}
+
+        try:
+            magazine.status = "processing"
+            magazine.failure_reason = None
+            await session.commit()
+
+            # 1. Fetch top AI news for closing section
+            from app.modules.contract_helpers import get_top_ai_news
+            ai_news = await get_top_ai_news(session, limit=3)
+
+            # 2. Prepare payload for Master Editorial Renderer
+            pdf_dir = "uploads/magazines/generated"
+            os.makedirs(pdf_dir, exist_ok=True)
+            pdf_filename = f"{magazine.slug}_{uuid.uuid4().hex[:6]}.pdf"
+            output_pdf_path = os.path.join(pdf_dir, pdf_filename)
+            public_pdf_url = f"/{pdf_dir}/{pdf_filename}"
+
+            mag_data = {
+                "title": magazine.title,
+                "slug": magazine.slug,
+                "description": magazine.description or "",
+                "event_name": magazine.event_name or magazine.title,
+                "event_date": magazine.event_date or magazine.issue_date,
+                "department_name": magazine.department_name or "Engineering & Technology",
+                "publication_year": magazine.publication_year,
+                "magazine_type": magazine.magazine_type.value if hasattr(magazine.magazine_type, "value") else str(magazine.magazine_type),
+                "cover_pages": magazine.cover_pages or [],
+                "body_pages": magazine.body_pages or [],
+                "gallery_images": magazine.gallery_images or [],
+            }
+
+            # 3. Master Multi-Page Editorial Rendering
+            render_res = render_editorial_magazine_pdf(
+                magazine_data=mag_data,
+                output_pdf_path=output_pdf_path,
+                latest_ai_news=ai_news,
+            )
+
+            total_pages = render_res["total_pages"]
+            previews = render_res["page_previews"]
+            toc_items = render_res["toc_entries"]
+
+            # 4. Clean old pages and TOC entries
+            await session.execute(delete(MagazinePage).where(MagazinePage.magazine_id == magazine_id))
+            await session.execute(delete(MagazineTOCEntry).where(MagazineTOCEntry.magazine_id == magazine_id))
+            await session.commit()
+
+            # 5. Populate MagazinePage and TOC entries
+            pages_to_add = []
+            for idx, p_url in enumerate(previews):
+                p_num = idx + 1
+                heading_item = next((t["heading"] for t in toc_items if t["page_number"] == p_num), f"Page {p_num}")
+                pages_to_add.append(
+                    MagazinePage(
+                        magazine_id=magazine_id,
+                        page_number=p_num,
+                        image_url=p_url,
+                        extracted_text=f"{magazine.title} — {heading_item}",
+                    )
+                )
+
+            toc_to_add = [
+                MagazineTOCEntry(
+                    magazine_id=magazine_id,
+                    page_number=t["page_number"],
+                    heading=t["heading"],
+                )
+                for t in toc_items
+            ]
+
+            session.add_all(pages_to_add)
+            session.add_all(toc_to_add)
+
+            # 6. Update Magazine Record
+            magazine.pdf_url = public_pdf_url
+            magazine.cover_image_url = previews[0] if previews else None
+            magazine.page_count = total_pages
+            magazine.status = "published"
+            magazine.processed_at = datetime.now(timezone.utc)
+            magazine.published_at = datetime.now(timezone.utc)
+
+            await session.commit()
+            logger.info(f"✓ Event Magazine #{magazine_id} published successfully ({total_pages} pages).")
+
+            return {
+                "status": "success",
+                "pdf_url": public_pdf_url,
+                "page_count": total_pages,
+                "cover_image_url": previews[0] if previews else None,
+            }
+
+        except Exception as e:
+            logger.error(f"Error compiling event magazine #{magazine_id}: {e}", exc_info=True)
+            await session.rollback()
+            magazine.status = "failed"
+            magazine.failure_reason = str(e)
+            await session.commit()
+            return {"status": "error", "message": str(e)}
+
+
 def compile_magazine_pdf(magazine: Magazine, pages: list[MagazinePage], ai_news: list[dict]) -> str:
     """
     Compiles full magazine issue into a single downloadable PDF including all pages
@@ -220,4 +334,3 @@ def compile_magazine_pdf(magazine: Magazine, pages: list[MagazinePage], ai_news:
     out_doc.save(target_path)
     out_doc.close()
     return target_path
-

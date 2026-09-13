@@ -22,15 +22,29 @@ Thumbs.db
 postgres.zip
 pg_local/
 logfile
-*.json
+backend/*_backup_*.json
 __pycache__/
+.pytest_cache/
+*.pyc
 .env
+
+# Build & TypeScript
+tsconfig.tsbuildinfo
+
+# Database dumps
+*.sql
+*.dump
+
+# Root temporary execution directory
+uploads/
 
 patch_admin.py
 
 app_backup_*/
 
-# venv
+# Virtual environments
+.venv/
+backend/.venv/
 backend/venv/
 venv/
 

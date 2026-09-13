@@ -1,0 +1,38 @@
+{
+  "base_model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "dataset_dir": "datasets/magazine_v1.0.0",
+  "output_dir": "models/siet-qwen-magazine-v1.0.0",
+  "model_version": "v1.0.0",
+  "epochs": 3,
+  "learning_rate": 0.0002,
+  "batch_size": 2,
+  "gradient_accumulation_steps": 4,
+  "warmup_ratio": 0.05,
+  "weight_decay": 0.01,
+  "max_seq_length": 512,
+  "use_qlora": true,
+  "bits": 4,
+  "fp16": false,
+  "bf16": false,
+  "device": "auto",
+  "logging_steps": 10,
+  "save_steps": 50,
+  "eval_steps": 50,
+  "seed": 42,
+  "lora": {
+    "r": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ],
+    "bias": "none",
+    "task_type": "CAUSAL_LM"
+  }
+}
