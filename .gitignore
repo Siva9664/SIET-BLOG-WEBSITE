@@ -33,4 +33,6 @@ app_backup_*/
 # venv
 backend/venv/
 venv/
+.venv/
+.ml-venv/
 

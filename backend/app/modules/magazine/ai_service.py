@@ -22,6 +22,12 @@ from app.modules.magazine.style_guide import (
     get_best_matching_few_shot,
 )
 
+from app.infrastructure.ai import (
+    DEFAULT_STRICT_GROUNDING_INSTRUCTION,
+    MagazineEditorialContent,
+    get_ai_service,
+)
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or ""
 
@@ -67,47 +73,15 @@ async def get_active_template(db: AsyncSession | None = None) -> dict:
 
 async def _call_llm(prompt: str, model_name: str = "gemini-1.5-flash") -> str:
     """
-    Executes prompt using available LLM API (Gemini or OpenAI).
-    If no API key is set, returns empty string to trigger intelligent rule-based fallback.
+    Executes prompt using central AI Service Manager (Qwen3 14B -> configured fallback).
+    If providers are unavailable or fail, returns empty string to trigger deterministic rule-based fallback.
     """
-    if GEMINI_API_KEY:
-        try:
-            target_model = model_name if "gemini" in model_name else "gemini-1.5-flash"
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{target_model}:generateContent?key={GEMINI_API_KEY}"
-            payload = {"contents": [{"parts": [{"text": prompt}]}]}
-            async with httpx.AsyncClient(timeout=25.0) as client:
-                res = await client.post(url, json=payload)
-
-                if res.status_code == 200:
-                    data = res.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        text = candidates[0]["content"]["parts"][0]["text"]
-                        return text.strip()
-        except Exception as e:
-            logger.warning(f"Gemini API call failed: {e}. Using fallback engine.")
-
-    if OPENAI_API_KEY:
-        try:
-            url = "https://api.openai.com/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": "gpt-3.5-turbo",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.7,
-            }
-            async with httpx.AsyncClient(timeout=25.0) as client:
-                res = await client.post(url, headers=headers, json=payload)
-                if res.status_code == 200:
-                    data = res.json()
-                    return data["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            logger.warning(f"OpenAI API call failed: {e}. Using fallback engine.")
-
-    return ""
+    try:
+        service = get_ai_service()
+        return await service.generate_text(prompt, model=model_name)
+    except Exception as e:
+        logger.warning(f"[AI Service] LLM call failed: {e}. Utilizing deterministic rule-based fallback.")
+        return ""
 
 
 # ─── ONE-CLICK AUTO-GENERATE FULL MAGAZINE CONTENT ───────────────────────────
@@ -167,14 +141,28 @@ Return the output ONLY as valid JSON in this exact structure:
 
 Only return valid JSON, no extra text."""
 
-    llm_output = await _call_llm(prompt)
+    parsed: Optional[Dict[str, Any]] = None
+    try:
+        service = get_ai_service()
+        structured_output = await service.generate_structured(
+            prompt=prompt,
+            schema=MagazineEditorialContent,
+            system_instruction=DEFAULT_STRICT_GROUNDING_INSTRUCTION,
+        )
+        parsed = structured_output.model_dump()
+    except Exception as e:
+        logger.warning(f"Structured auto-generation pass error: {e}. Attempting text generation fallback.")
+        llm_output = await _call_llm(prompt)
+        if llm_output:
+            clean_json = re.sub(r"^```(json)?", "", llm_output.strip(), flags=re.IGNORECASE)
+            clean_json = re.sub(r"```$", "", clean_json.strip()).strip()
+            try:
+                parsed = json.loads(clean_json)
+            except Exception as parse_err:
+                logger.warning(f"Failed to parse LLM JSON output: {parse_err}. Using rule fallback.")
 
-    if llm_output:
-        # Strip potential markdown code fence markers (e.g. ```json ... ```)
-        clean_json = re.sub(r"^```(json)?", "", llm_output.strip(), flags=re.IGNORECASE)
-        clean_json = re.sub(r"```$", "", clean_json.strip()).strip()
+    if parsed:
         try:
-            parsed = json.loads(clean_json)
             # Format writeup text into basic HTML structure if plain markdown
             writeup_raw = parsed.get("writeup", "")
             headline = f"Highlights from {event_name}"
@@ -427,13 +415,28 @@ Return the output ONLY as valid JSON in this exact structure:
 
 Only return valid JSON, no extra text."""
 
-    llm_output = await _call_llm(prompt)
+    parsed: Optional[Dict[str, Any]] = None
+    try:
+        service = get_ai_service()
+        structured_output = await service.generate_structured(
+            prompt=prompt,
+            schema=MagazineEditorialContent,
+            system_instruction=DEFAULT_STRICT_GROUNDING_INSTRUCTION,
+        )
+        parsed = structured_output.model_dump()
+    except Exception as e:
+        logger.warning(f"Grounded structured generation error: {e}. Attempting text generation fallback.")
+        llm_output = await _call_llm(prompt)
+        if llm_output:
+            clean_json = re.sub(r"^```(json)?", "", llm_output.strip(), flags=re.IGNORECASE)
+            clean_json = re.sub(r"```$", "", clean_json.strip()).strip()
+            try:
+                parsed = json.loads(clean_json)
+            except Exception as parse_err:
+                logger.warning(f"Failed to parse Grounded LLM JSON output: {parse_err}")
 
-    if llm_output:
-        clean_json = re.sub(r"^```(json)?", "", llm_output.strip(), flags=re.IGNORECASE)
-        clean_json = re.sub(r"```$", "", clean_json.strip()).strip()
+    if parsed:
         try:
-            parsed = json.loads(clean_json)
             writeup_raw = parsed.get("writeup", "")
             headline = f"Highlights from {event_name}"
             lines = [l.strip() for l in writeup_raw.split("\n") if l.strip()]

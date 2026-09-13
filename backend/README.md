@@ -122,3 +122,52 @@ When the backend starts up or when `scripts/check_admin.py` is executed, the fol
 | **Seed Database** | `PYTHONPATH=. ./venv/bin/python scripts/seed.py` |
 | **Fetch Latest News** | `PYTHONPATH=. ./venv/bin/python scripts/fetch_todays_news.py` |
 | **Test Login Script** | `PYTHONPATH=. ./venv/bin/python scripts/test_login.py` |
+| **Qwen3 14B Smoke Test** | `PYTHONPATH=. ./venv/bin/python scripts/smoke_test_qwen.py` |
+
+---
+
+## 🤖 Editorial Intelligence (Local Qwen3 14B & Fallback Providers)
+
+The backend features an Editorial Intelligence service layer located in `app/infrastructure/ai/` designed for document understanding, classification, summarization, rewriting, headline generation, photo captioning, and structured editorial JSON generation.
+
+### 1. Architectural Guardrails
+- **Physical Layout Isolation**: Qwen acts exclusively as the editorial intelligence model. Physical magazine layout rendering remains deterministic and template-driven.
+- **Strict Grounding Rule**: Generation is constrained to supplied source and RAG passages. The provider strictly forbids hallucinating or inventing names, dates, stats, or events. Missing fields must be represented as null/empty.
+- **Structured Output**: Native JSON schema constrained decoding with Pydantic validation and bounded retry.
+- **Observable Fallback**: Dynamic routing where primary provider (`qwen`) failures or timeouts observably fall back to the configured fallback provider (`gemini` or `openai`), and finally to deterministic rule-based generators without crashing.
+
+### 2. Local Ollama & Model Setup
+Install Ollama and pull the required Qwen3 14B model:
+```bash
+# Start Ollama service (runs on port 11434 by default)
+ollama serve
+
+# Verify or pull Qwen3 14B
+ollama run qwen3:14b
+```
+
+### 3. Environment Configuration
+Configure the AI provider in `.env`:
+```env
+# AI & Editorial Intelligence Provider Settings
+AI_PROVIDER="qwen"                  # Primary provider: qwen, gemini, openai
+AI_FALLBACK_PROVIDER="gemini"        # Fallback provider: gemini, openai, none
+OLLAMA_BASE_URL="http://localhost:11434"
+OLLAMA_MODEL="qwen3:14b"
+OLLAMA_TIMEOUT=60.0
+
+# Optional Fallback API Keys
+GEMINI_API_KEY=""                    # Optional fallback Google Gemini API Key
+GEMINI_MODEL="gemini-1.5-flash"
+OPENAI_API_KEY=""                    # Optional fallback OpenAI API Key
+OPENAI_MODEL="gpt-3.5-turbo"
+```
+
+### 4. Running AI Tests & Smoke Test
+```bash
+# Run AI unit tests (mocked HTTP, no live server required)
+PYTHONPATH=. ./venv/bin/pytest tests/ai/ -v
+
+# Run live Qwen3 14B smoke test with synthetic college event report
+PYTHONPATH=. ./venv/bin/python scripts/smoke_test_qwen.py
+```

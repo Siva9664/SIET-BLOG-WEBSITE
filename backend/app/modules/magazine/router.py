@@ -894,6 +894,19 @@ class AITocRequest(BaseModel):
     description: str = ""
 
 
+@admin_router.get("/ai/health")
+async def api_ai_health(
+    current_user=Depends(require_admin),
+):
+    """
+    Checks operational status and diagnostic connectivity of primary (Ollama/Qwen)
+    and fallback AI providers.
+    """
+    from app.infrastructure.ai import get_ai_service
+    health_data = await get_ai_service().health()
+    return success(health_data)
+
+
 @admin_router.post("/ai/auto-generate")
 async def api_auto_generate_full(
     payload: AIFullAutoGenerateRequest,
