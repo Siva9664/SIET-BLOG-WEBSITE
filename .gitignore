@@ -36,3 +36,13 @@ venv/
 .venv/
 .ml-venv/
 
+# ML weights & caches
+*.safetensors
+*.pt
+*.bin
+*.onnx
+.cache/
+ml_eval/temp/
+ml_eval/data/
+!ml_eval/benchmark_results.json
+
