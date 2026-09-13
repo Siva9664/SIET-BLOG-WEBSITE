@@ -23,6 +23,7 @@ from app.infrastructure.ai.schemas import (
     EditorialSectionPlan,
     GeneratedMagazineSections,
     MagazineEditorialContent,
+    StructuredMagazineStoryContent,
 )
 
 __all__ = [
@@ -41,8 +42,10 @@ __all__ = [
     "DEFAULT_STRICT_GROUNDING_INSTRUCTION",
     "EDITORIAL_ROLE_INSTRUCTION",
     "MagazineEditorialContent",
+    "StructuredMagazineStoryContent",
     "EditorialPlan",
     "EditorialReview",
     "EditorialSectionPlan",
     "GeneratedMagazineSections",
 ]
+
