@@ -14,6 +14,7 @@ from app.modules.engagement.router import router as engagement_router
 from app.modules.health.router import router as health_router
 from app.modules.home.router import router as home_router
 from app.modules.internal.router import router as internal_router
+from app.modules.labs.router import router as labs_router
 from app.modules.magazine.router import admin_router as admin_magazine_router, router as magazine_router
 from app.modules.media.router import router as media_router
 from app.modules.news.router import router as news_router
@@ -78,6 +79,7 @@ app.include_router(internal_router, prefix=settings.API_PREFIX)
 app.include_router(domains_router, prefix=settings.API_PREFIX)
 app.include_router(tags_router, prefix=settings.API_PREFIX)
 app.include_router(media_router, prefix=settings.API_PREFIX)
+app.include_router(labs_router, prefix=settings.API_PREFIX)
 app.include_router(admin_router, prefix=settings.API_PREFIX)
 app.include_router(news_router, prefix=settings.API_PREFIX)
 app.include_router(articles_router, prefix=settings.API_PREFIX)

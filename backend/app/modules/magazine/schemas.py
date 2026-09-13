@@ -188,6 +188,8 @@ class MagazineTemplateCreate(BaseModel):
     name: str
     department_id: int | None = None
     department_slug: str | None = None
+    lab_id: int | None = None
+    is_global: bool = False
     template_family: str = "academic_digest"
     page_budget: int = 4
     description: str | None = None

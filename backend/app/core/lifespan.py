@@ -13,6 +13,7 @@ from app.core.scheduler import start_scheduler, shutdown_scheduler
 import app.modules.news.models
 import app.modules.auth.models
 from app.modules.auth.models import User
+import app.modules.labs.models
 import app.modules.articles.models
 import app.modules.domains.models
 from app.modules.domains.models import Domain

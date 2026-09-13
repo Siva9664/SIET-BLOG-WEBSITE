@@ -217,7 +217,7 @@ class AdminAccountCreate(BaseModel):
     name: str
     email: EmailStr
     password: str
-    role: str = "ADMIN"
+    role: str = "LAB_ADMIN"
 
 
 @router.get("/admins")
@@ -227,7 +227,7 @@ async def list_admin_accounts(
 ):
     stmt = (
         select(User)
-        .where(User.role.in_(["ADMIN", "SUPER_ADMIN", "admin", "super_admin"]))
+        .where(User.role.in_(["LAB_ADMIN", "ADMIN", "SUPER_ADMIN", "admin", "super_admin"]))
         .order_by(User.id.asc())
     )
     users = list((await db.execute(stmt)).scalars().all())
@@ -257,8 +257,8 @@ async def create_admin_account(
         raise HTTPException(status_code=409, detail="An account with this email address already exists.")
 
     target_role = payload.role.upper().strip()
-    if target_role not in ("ADMIN", "SUPER_ADMIN"):
-        target_role = "ADMIN"
+    if target_role not in ("LAB_ADMIN", "ADMIN", "SUPER_ADMIN"):
+        target_role = "LAB_ADMIN"
 
     user = User(
         name=payload.name.strip(),

@@ -14,6 +14,7 @@ class SourceDocument(Base, BaseModelMixin):
     mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
     storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
     uploaded_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    lab_id: Mapped[Optional[int]] = mapped_column(ForeignKey("labs.id", ondelete="SET NULL"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(50), default="processed", nullable=False)  # pending | processed | failed
     char_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

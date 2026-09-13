@@ -82,8 +82,20 @@ from app.modules.magazine.schemas import (
     EndToEndMagazineRequest, EndToEndMagazineResponse, PipelineProgressStage,
 )
 from app.modules.magazine.end_to_end_pipeline import run_end_to_end_magazine_pipeline
-from app.shared.auth.dependencies import require_admin, require_super_admin
-from app.shared.exceptions.custom import NotFoundException
+from app.modules.magazine.access import (
+    check_magazine_access,
+    check_template_access,
+    resolve_creation_lab,
+)
+from app.shared.auth.dependencies import (
+    check_object_lab_access,
+    get_user_permitted_lab_ids,
+    require_admin,
+    require_lab_admin,
+    require_super_admin,
+    verify_user_lab_access,
+)
+from app.shared.exceptions.custom import ForbiddenException, NotFoundException
 from app.shared.types.content import ContentKind, MagazineType
 
 UPLOAD_DIR = "uploads/magazines"
@@ -339,12 +351,37 @@ async def magazine_unbookmark(slug: str, request: Request, db: AsyncSession = De
 
 @admin_router.get("")
 async def admin_list_magazines(
+    lab_id: Optional[int] = Query(None, description="Filter by lab ID"),
+    my_work: bool = Query(False, description="Filter to items created by current user"),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_lab_admin),
 ):
+    """Admin magazine listing with server-side lab isolation:
+    - Super Admin: sees all magazines or filtered by lab_id.
+    - Lab Admin: sees only magazines belonging to their permitted labs.
+    - my_work=True: filters to items created by current_user.
+    """
     query = select(Magazine).options(
         selectinload(Magazine.pages), selectinload(Magazine.toc_entries),
     ).order_by(Magazine.id.desc())
+
+    if current_user.is_super_admin:
+        if lab_id is not None:
+            query = query.where(Magazine.lab_id == lab_id)
+    else:
+        permitted_ids = await get_user_permitted_lab_ids(current_user, db)
+        if not permitted_ids:
+            return success([])
+        if lab_id is not None:
+            if lab_id not in permitted_ids:
+                raise ForbiddenException("Access denied: You do not have permission for this lab.")
+            query = query.where(Magazine.lab_id == lab_id)
+        else:
+            query = query.where(Magazine.lab_id.in_(permitted_ids))
+
+    if my_work:
+        query = query.where(Magazine.created_by_id == current_user.id)
+
     rows = list((await db.execute(query)).scalars().all())
     return success([_magazine_row(m) for m in rows])
 
@@ -359,15 +396,33 @@ async def create_event_magazine(
     publication_year: int = Form(datetime.now().year),
     department_id: int | None = Form(None),
     department_name: str | None = Form(None),
+    lab_id: int | None = Form(None),
+    template_id: int | None = Form(None),
     target_page_budget: int = Form(4),
     gallery_images_json: str = Form(None),
     writeup_headline: str | None = Form(None),
     writeup_text: str | None = Form(None),
     writeup_html: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_lab_admin),
 ):
-    """Step 1: Create a new event magazine entry. Pre-populates gallery images and writeup if provided."""
+    """Step 1: Create a new event magazine entry with validated lab and creator ownership."""
+    target_lab_id = await resolve_creation_lab(current_user, lab_id, db)
+
+    # If template_id provided, verify access
+    target_template_version_id = None
+    if template_id is not None:
+        tmpl = await db.get(MagazineTemplate, template_id)
+        if not tmpl:
+            raise NotFoundException(f"Template #{template_id} not found.")
+        await check_template_access(current_user, tmpl, db, require_write=False)
+        # Fetch active version
+        v_stmt = select(TemplateVersion.id).where(
+            TemplateVersion.template_id == template_id,
+            TemplateVersion.is_active == True
+        )
+        target_template_version_id = (await db.execute(v_stmt)).scalar()
+
     slug = await _unique_slug(db, slugify(title))
     try:
         mt = MagazineType(magazine_type.lower())
@@ -405,6 +460,11 @@ async def create_event_magazine(
         event_date=parsed_event_date,
         department_id=department_id,
         department_name=department_name.strip() if department_name else None,
+        lab_id=target_lab_id,
+        created_by_id=current_user.id,
+        updated_by_id=current_user.id,
+        template_id=template_id,
+        template_version_id=target_template_version_id,
         target_page_budget=target_page_budget,
         magazine_type=mt,
         publication_year=publication_year,
@@ -420,7 +480,14 @@ async def create_event_magazine(
     db.add(mag)
     await db.commit()
     await db.refresh(mag)
-    return {"message": "Event magazine created.", "id": str(mag.id), "slug": mag.slug, "status": mag.status}
+    return {
+        "message": "Event magazine created.",
+        "id": str(mag.id),
+        "slug": mag.slug,
+        "status": mag.status,
+        "lab_id": mag.lab_id,
+        "created_by_id": mag.created_by_id,
+    }
 
 
 class TemplateUpdateSchema(BaseModel):
@@ -464,17 +531,23 @@ async def api_get_magazine_template(
 async def api_update_magazine_template(
     payload: TemplateUpdateSchema,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_super_admin),
 ):
+    """Update global standard magazine template (SUPER_ADMIN only).
+    Lab Admins must use lab-specific templates or cloning to avoid corrupting shared templates.
+    """
     stmt = select(MagazineTemplate).where(MagazineTemplate.is_active == True)
     tmpl = (await db.execute(stmt)).scalars().first()
     if not tmpl:
         tmpl = MagazineTemplate(
             name=payload.name or "SIET Standard Issue Template",
             is_active=True,
+            is_global=True,
             section_schema=payload.section_schema,
             style_rules=payload.style_rules,
             example_outputs=payload.example_outputs or {},
+            created_by_id=current_user.id,
+            updated_by_id=current_user.id,
         )
         db.add(tmpl)
     else:
@@ -484,6 +557,7 @@ async def api_update_magazine_template(
         tmpl.style_rules = payload.style_rules
         if payload.example_outputs is not None:
             tmpl.example_outputs = payload.example_outputs
+        tmpl.updated_by_id = current_user.id
         tmpl.updated_at = datetime.now(timezone.utc)
 
     await db.commit()
@@ -492,6 +566,7 @@ async def api_update_magazine_template(
     return success({
         "id": tmpl.id,
         "name": tmpl.name,
+        "is_global": tmpl.is_global,
         "is_active": tmpl.is_active,
         "section_schema": tmpl.section_schema,
         "style_rules": tmpl.style_rules,
@@ -505,8 +580,9 @@ async def api_update_magazine_template(
 async def api_upload_magazine_template(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_super_admin),
 ):
+    """Upload template file and extract blueprint (SUPER_ADMIN only for global standard template)."""
     contents = await file.read()
     parsed = parse_template_file(contents, file.filename)
 
@@ -516,14 +592,18 @@ async def api_upload_magazine_template(
         tmpl = MagazineTemplate(
             name=parsed["name"],
             is_active=True,
+            is_global=True,
             section_schema=parsed["section_schema"],
             style_rules=parsed["style_rules"],
+            created_by_id=current_user.id,
+            updated_by_id=current_user.id,
         )
         db.add(tmpl)
     else:
         tmpl.name = parsed["name"]
         tmpl.section_schema = parsed["section_schema"]
         tmpl.style_rules = parsed["style_rules"]
+        tmpl.updated_by_id = current_user.id
         tmpl.updated_at = datetime.now(timezone.utc)
 
     await db.commit()
@@ -536,7 +616,7 @@ async def api_upload_magazine_template(
         try:
             blueprint = analyze_template_pdf_visual_blueprint(contents, file.filename)
 
-            # Create new TemplateVersion
+            # Create new TemplateVersion with snapshots for immutability
             version_stmt = select(func.coalesce(func.max(TemplateVersion.version_number), 0)).where(TemplateVersion.template_id == tmpl.id)
             max_ver = (await db.execute(version_stmt)).scalar() or 0
 
@@ -549,6 +629,9 @@ async def api_upload_magazine_template(
                 template_id=tmpl.id,
                 version_number=max_ver + 1,
                 is_active=True,
+                section_schema_snapshot=tmpl.section_schema,
+                style_rules_snapshot=tmpl.style_rules,
+                created_by_id=current_user.id,
             )
             db.add(ver_record)
             await db.commit()
@@ -602,15 +685,17 @@ async def api_upload_magazine_template(
 async def get_template_blueprint(
     template_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_lab_admin),
 ):
     """
     Phase 4 Visual Template Blueprint Inspection Endpoint:
-    Returns stored visual blueprint hierarchy including page dimensions, margins, and region coordinates.
+    Returns stored visual blueprint hierarchy with object-level lab authorization.
     """
     tmpl = await db.get(MagazineTemplate, template_id)
     if not tmpl:
         raise NotFoundException(f"Magazine template #{template_id} not found.")
+
+    await check_template_access(current_user, tmpl, db, require_write=False)
 
     version_stmt = (
         select(TemplateVersion)
@@ -814,17 +899,92 @@ async def api_validate_page_visual_quality(
 
 
 @admin_router.get("/templates")
-@router.get("/templates")
 async def api_list_magazine_templates(
     department_id: int | None = Query(None),
     department_slug: str | None = Query(None),
+    lab_id: int | None = Query(None),
     is_active: bool = Query(True),
     db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_lab_admin),
 ):
-    """List magazine templates with metadata."""
+    """List magazine templates available to the current user with strict 3-tier rules:
+    - Super Admin: can view all templates (or filtered by lab_id).
+    - Lab Admin: can view:
+        1. Templates explicitly assigned to their lab (via template_lab_assignments).
+        2. Templates created specifically for their lab (lab_id in permitted).
+        3. Global templates (is_global=True).
+    """
     stmt = select(MagazineTemplate)
     if is_active is not None:
         stmt = stmt.where(MagazineTemplate.is_active == is_active)
+    if department_id is not None:
+        stmt = stmt.where(MagazineTemplate.department_id == department_id)
+    if department_slug:
+        stmt = stmt.where(MagazineTemplate.department_slug == department_slug)
+
+    if not current_user.is_super_admin:
+        permitted_labs = await get_user_permitted_lab_ids(current_user, db)
+        if not permitted_labs:
+            # Only global templates accessible
+            stmt = stmt.where(MagazineTemplate.is_global == True)
+        else:
+            # Rule 1, 2, 3 combined
+            from sqlalchemy import or_
+            from app.modules.labs.models import TemplateLabAssignment
+            assigned_template_ids_stmt = select(TemplateLabAssignment.template_id).where(
+                TemplateLabAssignment.lab_id.in_(permitted_labs),
+                TemplateLabAssignment.is_active == True
+            )
+            stmt = stmt.where(
+                or_(
+                    MagazineTemplate.is_global == True,
+                    MagazineTemplate.lab_id.in_(permitted_labs),
+                    MagazineTemplate.id.in_(assigned_template_ids_stmt)
+                )
+            )
+            if lab_id is not None:
+                if lab_id not in permitted_labs:
+                    raise ForbiddenException("Access denied: You do not have permission for this lab.")
+                stmt = stmt.where(or_(MagazineTemplate.lab_id == lab_id, MagazineTemplate.is_global == True))
+    else:
+        if lab_id is not None:
+            stmt = stmt.where(MagazineTemplate.lab_id == lab_id)
+
+    templates = list((await db.execute(stmt)).scalars().all())
+    out = []
+    for tmpl in templates:
+        out.append({
+            "id": tmpl.id,
+            "name": tmpl.name,
+            "is_global": tmpl.is_global,
+            "lab_id": tmpl.lab_id,
+            "department_id": tmpl.department_id,
+            "department_slug": tmpl.department_slug,
+            "template_family": tmpl.template_family,
+            "page_budget": tmpl.page_budget,
+            "description": tmpl.description,
+            "is_active": tmpl.is_active,
+            "section_schema": tmpl.section_schema,
+            "style_rules": tmpl.style_rules,
+            "template_metadata": tmpl.effective_metadata,
+            "example_outputs": tmpl.example_outputs or {},
+            "created_by_id": tmpl.created_by_id,
+            "updated_at": tmpl.updated_at.isoformat() if tmpl.updated_at else None,
+        })
+    return success(out)
+
+
+@router.get("/templates")
+async def api_public_list_magazine_templates(
+    department_id: int | None = Query(None),
+    department_slug: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Public template list: strictly global active templates only."""
+    stmt = select(MagazineTemplate).where(
+        MagazineTemplate.is_active == True,
+        MagazineTemplate.is_global == True
+    )
     if department_id is not None:
         stmt = stmt.where(MagazineTemplate.department_id == department_id)
     if department_slug:
@@ -836,8 +996,6 @@ async def api_list_magazine_templates(
         out.append({
             "id": tmpl.id,
             "name": tmpl.name,
-            "department_id": tmpl.department_id,
-            "department_slug": tmpl.department_slug,
             "template_family": tmpl.template_family,
             "page_budget": tmpl.page_budget,
             "description": tmpl.description,
@@ -855,11 +1013,27 @@ async def api_list_magazine_templates(
 async def api_create_magazine_template(
     payload: MagazineTemplateCreate,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_lab_admin),
 ):
-    """Create a new magazine template with metadata."""
+    """Create a new magazine template.
+    - Super Admin: can create global or lab-specific templates.
+    - Lab Admin: can ONLY create templates for their permitted lab (cannot create global templates).
+    """
+    target_is_global = False
+    target_lab_id = None
+
+    if current_user.is_super_admin:
+        target_is_global = payload.is_global
+        target_lab_id = payload.lab_id if not target_is_global else None
+    else:
+        # Lab admin cannot create global templates
+        target_is_global = False
+        target_lab_id = await resolve_creation_lab(current_user, payload.lab_id, db)
+
     tmpl = MagazineTemplate(
         name=payload.name,
+        is_global=target_is_global,
+        lab_id=target_lab_id,
         department_id=payload.department_id,
         department_slug=payload.department_slug,
         template_family=payload.template_family,
@@ -870,6 +1044,8 @@ async def api_create_magazine_template(
         style_rules=payload.style_rules,
         template_metadata=payload.template_metadata,
         example_outputs=payload.example_outputs or {},
+        created_by_id=current_user.id,
+        updated_by_id=current_user.id,
     )
     db.add(tmpl)
     await db.commit()
@@ -877,6 +1053,8 @@ async def api_create_magazine_template(
     return success({
         "id": tmpl.id,
         "name": tmpl.name,
+        "is_global": tmpl.is_global,
+        "lab_id": tmpl.lab_id,
         "department_id": tmpl.department_id,
         "department_slug": tmpl.department_slug,
         "template_family": tmpl.template_family,
@@ -887,23 +1065,29 @@ async def api_create_magazine_template(
         "style_rules": tmpl.style_rules,
         "template_metadata": tmpl.effective_metadata,
         "example_outputs": tmpl.example_outputs or {},
+        "created_by_id": tmpl.created_by_id,
         "updated_at": tmpl.updated_at.isoformat() if tmpl.updated_at else None,
     })
 
 
 @admin_router.get("/templates/{template_id}")
-@router.get("/templates/{template_id}")
 async def api_get_single_magazine_template(
     template_id: int,
     db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_lab_admin),
 ):
-    """Get single magazine template by ID."""
+    """Get single magazine template by ID with object-level lab authorization."""
     tmpl = await db.get(MagazineTemplate, template_id)
     if not tmpl:
         raise NotFoundException(f"Magazine template #{template_id} not found.")
+
+    await check_template_access(current_user, tmpl, db, require_write=False)
+
     return success({
         "id": tmpl.id,
         "name": tmpl.name,
+        "is_global": tmpl.is_global,
+        "lab_id": tmpl.lab_id,
         "department_id": tmpl.department_id,
         "department_slug": tmpl.department_slug,
         "template_family": tmpl.template_family,
@@ -925,12 +1109,14 @@ async def upload_cover_pages(
     magazine_id: int,
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_lab_admin),
 ):
     """Upload up to 2 intro/cover page images. Replaces any existing cover pages."""
     mag = await db.get(Magazine, magazine_id)
     if not mag:
         raise NotFoundException("Magazine not found.")
+    await check_magazine_access(current_user, mag, db, require_write=True)
+
     if len(files) > 2:
         raise HTTPException(status_code=400, detail="Cover pages are limited to 2 images.")
 
@@ -946,6 +1132,7 @@ async def upload_cover_pages(
     mag.cover_pages = saved
     if saved:
         mag.cover_image_url = saved[0]["url"]
+    mag.updated_by_id = current_user.id
     await db.commit()
     return {"message": f"Saved {len(saved)} cover page(s).", "coverPages": saved}
 
@@ -955,12 +1142,13 @@ async def upload_body_pages(
     magazine_id: int,
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_lab_admin),
 ):
     """Upload body content pages (images). Appends to existing body pages."""
     mag = await db.get(Magazine, magazine_id)
     if not mag:
         raise NotFoundException("Magazine not found.")
+    await check_magazine_access(current_user, mag, db, require_write=True)
 
     existing = list(mag.body_pages or [])
     for f in files:
@@ -973,6 +1161,7 @@ async def upload_body_pages(
 
     mag.body_pages = existing
     mag.page_count = len(mag.cover_pages or []) + len(existing) + len(mag.gallery_images or [])
+    mag.updated_by_id = current_user.id
     await db.commit()
     return {"message": f"Added {len(files)} body page(s). Total body pages: {len(existing)}.", "bodyPages": existing}
 
@@ -982,12 +1171,13 @@ async def upload_gallery_images(
     magazine_id: int,
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_lab_admin),
 ):
     """Batch upload event photos. Auto-appended as the final gallery section."""
     mag = await db.get(Magazine, magazine_id)
     if not mag:
         raise NotFoundException("Magazine not found.")
+    await check_magazine_access(current_user, mag, db, require_write=True)
 
     existing = list(mag.gallery_images or [])
     for f in files:
@@ -1000,6 +1190,7 @@ async def upload_gallery_images(
 
     mag.gallery_images = existing
     mag.page_count = len(mag.cover_pages or []) + len(mag.body_pages or []) + len(existing)
+    mag.updated_by_id = current_user.id
     await db.commit()
     return {"message": f"Added {len(files)} gallery image(s). Total gallery: {len(existing)}.", "galleryImages": existing}
 
@@ -1013,11 +1204,12 @@ async def upload_magazine_issue(
     magazine_type: str = Form("special"),
     event_name: str = Form(None),
     event_date: str = Form(None),
+    lab_id: int | None = Form(None),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_super_admin),
 ):
-    """Upload a full PDF directly — existing flow extended with event fields."""
+    """Upload a full PDF directly (Super Admin only flow)."""
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Uploaded file must be a PDF document.")
 
@@ -1060,6 +1252,9 @@ async def upload_magazine_issue(
         cover_pages=[],
         body_pages=[],
         gallery_images=[],
+        lab_id=lab_id,
+        created_by_id=current_user.id,
+        updated_by_id=current_user.id,
     )
     db.add(mag)
     await db.commit()
@@ -1077,9 +1272,9 @@ async def publish_magazine(
     magazine_id: int,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_super_admin),
 ):
-    """Publish a draft magazine. Sets status=published and stamps published_at. Auto-compiles event issue if needed."""
+    """Publish a draft magazine. SUPER_ADMIN approval/publish action."""
     mag = await db.get(Magazine, magazine_id)
     if not mag:
         raise NotFoundException("Magazine not found.")
@@ -1089,9 +1284,9 @@ async def publish_magazine(
     mag.published_at = now
     mag.is_featured = True
     mag.featured_until = now + timedelta(days=MAGAZINE_FEATURED_DAYS)
+    mag.updated_by_id = current_user.id
     await db.commit()
 
-    # If this is an Event Magazine with missing PDF or 0 pages, auto-compile publication
     if not mag.pdf_url or mag.page_count == 0:
         from app.modules.magazine.pipeline import compile_and_process_event_magazine
         background_tasks.add_task(compile_and_process_event_magazine, magazine_id)
@@ -1099,13 +1294,55 @@ async def publish_magazine(
     return {"message": "Magazine published.", "id": str(mag.id), "isFeatured": mag.is_featured}
 
 
+@admin_router.post("/{magazine_id}/submit-review")
+async def submit_magazine_for_review(
+    magazine_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_lab_admin),
+):
+    """Lab Admin submits their magazine draft for Super Admin review & publishing."""
+    mag = await db.get(Magazine, magazine_id)
+    if not mag:
+        raise NotFoundException("Magazine not found.")
+    await check_magazine_access(current_user, mag, db, require_write=True)
+
+    mag.status = "submitted"
+    mag.updated_by_id = current_user.id
+    await db.commit()
+    return {"message": "Magazine submitted for Super Admin review.", "id": str(mag.id), "status": mag.status}
+
+
+@admin_router.post("/{magazine_id}/reject")
+async def reject_magazine(
+    magazine_id: int,
+    notes: str = Form("Needs revisions"),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_super_admin),
+):
+    """Super Admin rejects a submitted magazine with review notes."""
+    mag = await db.get(Magazine, magazine_id)
+    if not mag:
+        raise NotFoundException("Magazine not found.")
+
+    mag.status = "rejected"
+    mag.review_notes = notes
+    mag.updated_by_id = current_user.id
+    await db.commit()
+    return {"message": "Magazine rejected with review feedback.", "id": str(mag.id), "status": mag.status, "notes": notes}
+
+
 @admin_router.post("/{magazine_id}/compile")
 async def api_compile_magazine(
     magazine_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_lab_admin),
 ):
     """Compiles and renders a full multi-page event magazine publication immediately."""
+    mag = await db.get(Magazine, magazine_id)
+    if not mag:
+        raise NotFoundException("Magazine not found.")
+    await check_magazine_access(current_user, mag, db, require_write=True)
+
     from app.modules.magazine.pipeline import compile_and_process_event_magazine
     res = await compile_and_process_event_magazine(magazine_id)
     if res.get("status") == "error":
@@ -1117,14 +1354,15 @@ async def api_compile_magazine(
 async def unpublish_magazine(
     magazine_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_admin),
+    current_user=Depends(require_super_admin),
 ):
-    """Unpublish a magazine back to draft."""
+    """Unpublish a magazine back to draft (Super Admin only)."""
     mag = await db.get(Magazine, magazine_id)
     if not mag:
         raise NotFoundException("Magazine not found.")
     mag.status = "draft"
     mag.is_featured = False
+    mag.updated_by_id = current_user.id
     await db.commit()
     return {"message": "Magazine unpublished.", "id": str(mag.id)}
 
@@ -1153,6 +1391,7 @@ async def replace_magazine_pdf(
     mag.pdf_url = f"/{UPLOAD_DIR}/{pdf_filename}"
     mag.status = "processing"
     mag.failure_reason = None
+    mag.updated_by_id = current_user.id
     await db.commit()
     background_tasks.add_task(process_magazine_pdf, mag.id, pdf_save_path)
     return {"message": f"PDF replaced for magazine #{magazine_id}. Background processing re-started.", "id": str(mag.id)}
@@ -1162,11 +1401,14 @@ async def replace_magazine_pdf(
 async def delete_magazine_issue(
     magazine_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_super_admin),
+    current_user=Depends(require_lab_admin),
 ):
+    """Delete magazine: Super Admin can delete any; Lab Admin can only delete within assigned lab."""
     mag = await db.get(Magazine, magazine_id)
     if not mag:
         raise NotFoundException("Magazine issue not found.")
+    await check_magazine_access(current_user, mag, db, require_write=True)
+
     await db.delete(mag)
     await db.commit()
     return {"message": "Magazine issue deleted successfully."}
@@ -1590,7 +1832,6 @@ async def api_auto_generate_magazine(
 
 
 @admin_router.post("/generate/end-to-end")
-@router.post("/generate/end-to-end")
 async def api_generate_end_to_end_magazine(
     file: Optional[UploadFile] = File(None),
     photos: Optional[List[UploadFile]] = File(None),
@@ -1598,19 +1839,22 @@ async def api_generate_end_to_end_magazine(
     event_name: Optional[str] = Form(None),
     event_date: Optional[str] = Form(None),
     department_or_lab: Optional[str] = Form("AI & Data Science Lab"),
+    lab_id: Optional[int] = Form(None),
+    template_id: Optional[int] = Form(None),
     raw_notes: Optional[str] = Form(None),
     target_page_budget: int = Form(5),
     publish_immediately: bool = Form(True),
     use_llm: bool = Form(True),
     max_qc_attempts: int = Form(3),
     db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_lab_admin),
 ):
     """
     Complete End-to-End AI Magazine Generation Pipeline.
-    Integrates Document Parsing, Qwen Content Understanding, Template Selection,
-    SigLIP Real-Photo Matching, Multi-Page & Layout Planning, Template-Driven Rendering,
-    Visual Quality Control (10 checks + recovery), and Multi-Page PDF compilation.
+    Securely checks lab access and tags the generated magazine with user's lab and creator ID.
     """
+    target_lab_id = await resolve_creation_lab(current_user, lab_id, db)
+
     file_bytes: Optional[bytes] = None
     filename: Optional[str] = None
     if file and file.filename:
@@ -1659,6 +1903,9 @@ async def api_generate_end_to_end_magazine(
         publish_immediately=publish_immediately,
         use_llm=use_llm,
         max_qc_attempts=max_qc_attempts,
+        lab_id=target_lab_id,
+        created_by_id=current_user.id,
+        template_id=template_id,
         db=db,
     )
     return success(result.model_dump())
