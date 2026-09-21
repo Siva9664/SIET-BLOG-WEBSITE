@@ -5,6 +5,7 @@ Handles:
 1. One-Click Full Auto-Generation for Event Magazine (Title, Description, Writeup, Captions, TOC)
 2. Individual field assistance fallbacks
 """
+import os
 import re
 import json
 from typing import List, Dict, Any, Optional
@@ -99,6 +100,10 @@ async def _call_llm(prompt: str, model_name: str = "gemini-1.5-flash") -> str:
     Supported providers: ollama (Qwen), gemini, openai, auto.
     Falls back to central AI Service Manager, or returns empty string to trigger deterministic rule-based fallback.
     """
+    prov = os.getenv("MAGAZINE_LLM_PROVIDER", "").lower()
+    if prov in {"none", "disabled", "off"}:
+        return ""
+
     try:
         res = await call_llm(prompt, model_name=model_name)
         if res:
