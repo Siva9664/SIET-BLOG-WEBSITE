@@ -1,0 +1,17 @@
+# SIET CSE Department Launches High-Performance AI Computing Facility
+
+Department of Computer Science & Engineering, SIET.
+Date: August 12, 2026.
+Establishment of new High-Performance Computing cluster with 8 NVIDIA GPUs for AI research funded by Institutional Research Grant of INR 35 Lakhs. Lead Coordinator: Dr. V. Muralidharan, Professor & Head of CSE. Intended users: Final-year B.E. and M.E. scholars working on autonomous robotics and vision models.
+
+---
+
+# Hands-on Workshop on Edge AI and TinyML Systems
+
+Event: Hands-on Workshop on Edge AI and TinyML Systems.
+Date: July 18-19, 2026.
+Organized by: Department of Electronics & Communication Engineering, SIET.
+Resource Person: Er. S. Karthik, Senior Embedded Architect at Silico Labs.
+Participants: 85 registered undergraduate students from ECE and EEE.
+Hands-on kits: ESP32-S3 microcontroller units paired with OV2640 camera sensors.
+Project outcome: Each participant deployed an on-device anomaly detection model.

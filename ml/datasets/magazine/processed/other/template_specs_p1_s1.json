@@ -1,0 +1,17 @@
+{
+  "story_id": "template_specs_p1_s1",
+  "doc_id": "template_specs",
+  "story_type": "other",
+  "page_start": 1,
+  "page_end": 1,
+  "headline": "{",
+  "body": "\"template_specs\": [\n\n{\n\n\"template_id\": \"template_modern_grid_01\",\n\n\"lab_department\": \"Computer Science & Engineering\",\n\n\"page_type\": \"photo_feature\",\n\n\"story_type\": \"workshops\",\n\n\"recommended_photos\": 4,\n\n\"layout_intent\": \"image_grid\"\n\n},\n\n{\n\n\"template_id\": \"template_hero_feature_03\",\n\n\"lab_department\": \"Electronics & Communication Engineering\",\n\n\"page_type\": \"event_page\",\n\n\"story_type\": \"events\",\n\n\"recommended_photos\": 1,\n\n\"layout_intent\": \"hero_image\"\n\n}\n\n]\n\n}",
+  "date": null,
+  "people": [],
+  "organization": "Computer Science & Engineering",
+  "achievement_result": null,
+  "attached_photos": [],
+  "photo_confidence": "high",
+  "source_text": "{\n  \"template_specs\": [\n    {\n      \"template_id\": \"template_modern_grid_01\",\n      \"lab_department\": \"Computer Science & Engineering\",\n      \"page_type\": \"photo_feature\",\n      \"story_type\": \"workshops\",\n      \"recommended_photos\": 4,\n      \"layout_intent\": \"image_grid\"\n    },\n    {\n      \"template_id\": \"template_hero_feature_03\",\n      \"lab_department\": \"Electronics & Communication Engineering\",\n      \"page_type\": \"event_page\",\n      \"story_type\": \"events\",\n      \"recommended_photos\": 1,\n      \"layout_intent\": \"hero_image\"\n    }\n  ]\n}",
+  "lab_department": "Computer Science & Engineering"
+}

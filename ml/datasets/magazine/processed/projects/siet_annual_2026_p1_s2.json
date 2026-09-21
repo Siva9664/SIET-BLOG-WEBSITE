@@ -1,0 +1,19 @@
+{
+  "story_id": "siet_annual_2026_p1_s2",
+  "doc_id": "siet_annual_2026",
+  "story_type": "projects",
+  "page_start": 1,
+  "page_end": 1,
+  "headline": "Autonomous Solar Boat Capstone Project Expo",
+  "body": "Event: Final Year Engineering Project Showcase.\n\nDate: October 14, 2026.\n\nMechanical Engineering and Electrical Engineering students presented their Autonomous Solar Boat prototype. The system operates on dual solar panels and GPS navigation. Coordinated by Prof. R. Senthil.",
+  "date": "October 14, 2026",
+  "people": [
+    "Prof. R. Senthil"
+  ],
+  "organization": "Mechanical Engineering",
+  "achievement_result": null,
+  "attached_photos": [],
+  "photo_confidence": "high",
+  "source_text": "# Autonomous Solar Boat Capstone Project Expo\n\nEvent: Final Year Engineering Project Showcase.\nDate: October 14, 2026.\nMechanical Engineering and Electrical Engineering students presented their Autonomous Solar Boat prototype. The system operates on dual solar panels and GPS navigation. Coordinated by Prof. R. Senthil.",
+  "lab_department": "Mechanical Engineering"
+}

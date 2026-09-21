@@ -53,6 +53,7 @@ app_backup_*/
 backend/.venv/
 backend/venv/
 venv/
+.ml-venv/
 
 # Model caches and heavyweight ML artifacts
 .cache/
@@ -66,3 +67,30 @@ backend/models/**/checkpoint-*/
 *.pt
 *.pth
 *.safetensors
+*.bin
+
+# ML weights & caches
+ml_eval/temp/
+ml_eval/data/
+!ml_eval/benchmark_results.json
+
+# ML Training artifacts & checkpoints
+ml/training/qwen/checkpoints/
+ml/training/qwen/outputs/
+ml/training/qwen/runs/
+ml/training/qwen/wandb/
+ml/training/qwen/adapters/
+ml/training/qwen/.cache/
+!ml/training/qwen/evaluations/evaluation_report.json
+
+# Large ML dataset archives
+*.zip
+ml/datasets/layout/
+reference-magazines/
+
+# Allow magazine dataset metadata JSON files
+!ml/datasets/magazine/**/*.json
+!ml/datasets/magazine/*.json
+
+# Large reference publications
+reference-magazines/**/*.pdf

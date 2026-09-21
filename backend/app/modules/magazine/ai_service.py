@@ -20,6 +20,16 @@ from app.modules.magazine.style_guide import (
 )
 from app.modules.magazine.llm_provider import call_llm
 
+from app.infrastructure.ai import (
+    DEFAULT_STRICT_GROUNDING_INSTRUCTION,
+    MagazineEditorialContent,
+    get_ai_service,
+)
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or ""
+
+
 async def get_active_template(
     db: AsyncSession | None = None,
     department_id: int | None = None,
@@ -85,14 +95,23 @@ async def get_active_template(
 
 async def _call_llm(prompt: str, model_name: str = "gemini-1.5-flash") -> str:
     """
-    Executes prompt using the configured magazine LLM provider.
-
-    Supported providers are selected by MAGAZINE_LLM_PROVIDER:
-    ollama, gemini, openai, auto, none. In auto mode this preserves the
-    previous Gemini/OpenAI preference before falling back to Ollama.
-    If no API key is set, returns empty string to trigger intelligent rule-based fallback.
+    Executes prompt using the configured magazine LLM provider (call_llm).
+    Supported providers: ollama (Qwen), gemini, openai, auto.
+    Falls back to central AI Service Manager, or returns empty string to trigger deterministic rule-based fallback.
     """
-    return await call_llm(prompt, model_name=model_name)
+    try:
+        res = await call_llm(prompt, model_name=model_name)
+        if res:
+            return res
+    except Exception as e:
+        logger.debug(f"[call_llm] Provider attempt returned: {e}")
+
+    try:
+        service = get_ai_service()
+        return await service.generate_text(prompt, model=model_name)
+    except Exception as e:
+        logger.warning(f"[AI Service] LLM call failed: {e}. Utilizing deterministic rule-based fallback.")
+        return ""
 
 
 # ─── ONE-CLICK AUTO-GENERATE FULL MAGAZINE CONTENT ───────────────────────────
@@ -152,14 +171,28 @@ Return the output ONLY as valid JSON in this exact structure:
 
 Only return valid JSON, no extra text."""
 
-    llm_output = await _call_llm(prompt)
+    parsed: Optional[Dict[str, Any]] = None
+    try:
+        service = get_ai_service()
+        structured_output = await service.generate_structured(
+            prompt=prompt,
+            schema=MagazineEditorialContent,
+            system_instruction=DEFAULT_STRICT_GROUNDING_INSTRUCTION,
+        )
+        parsed = structured_output.model_dump()
+    except Exception as e:
+        logger.warning(f"Structured auto-generation pass error: {e}. Attempting text generation fallback.")
+        llm_output = await _call_llm(prompt)
+        if llm_output:
+            clean_json = re.sub(r"^```(json)?", "", llm_output.strip(), flags=re.IGNORECASE)
+            clean_json = re.sub(r"```$", "", clean_json.strip()).strip()
+            try:
+                parsed = json.loads(clean_json)
+            except Exception as parse_err:
+                logger.warning(f"Failed to parse LLM JSON output: {parse_err}. Using rule fallback.")
 
-    if llm_output:
-        # Strip potential markdown code fence markers (e.g. ```json ... ```)
-        clean_json = re.sub(r"^```(json)?", "", llm_output.strip(), flags=re.IGNORECASE)
-        clean_json = re.sub(r"```$", "", clean_json.strip()).strip()
+    if parsed:
         try:
-            parsed = json.loads(clean_json)
             # Format writeup text into basic HTML structure if plain markdown
             writeup_raw = parsed.get("writeup", "")
             headline = f"Highlights from {event_name}"
@@ -419,13 +452,28 @@ Return the output ONLY as valid JSON in this exact structure:
 
 Only return valid JSON, no extra text."""
 
-    llm_output = await _call_llm(prompt)
+    parsed: Optional[Dict[str, Any]] = None
+    try:
+        service = get_ai_service()
+        structured_output = await service.generate_structured(
+            prompt=prompt,
+            schema=MagazineEditorialContent,
+            system_instruction=DEFAULT_STRICT_GROUNDING_INSTRUCTION,
+        )
+        parsed = structured_output.model_dump()
+    except Exception as e:
+        logger.warning(f"Grounded structured generation error: {e}. Attempting text generation fallback.")
+        llm_output = await _call_llm(prompt)
+        if llm_output:
+            clean_json = re.sub(r"^```(json)?", "", llm_output.strip(), flags=re.IGNORECASE)
+            clean_json = re.sub(r"```$", "", clean_json.strip()).strip()
+            try:
+                parsed = json.loads(clean_json)
+            except Exception as parse_err:
+                logger.warning(f"Failed to parse Grounded LLM JSON output: {parse_err}")
 
-    if llm_output:
-        clean_json = re.sub(r"^```(json)?", "", llm_output.strip(), flags=re.IGNORECASE)
-        clean_json = re.sub(r"```$", "", clean_json.strip()).strip()
+    if parsed:
         try:
-            parsed = json.loads(clean_json)
             writeup_raw = parsed.get("writeup", "")
             headline = f"Highlights from {event_name}"
             lines = [l.strip() for l in writeup_raw.split("\n") if l.strip()]

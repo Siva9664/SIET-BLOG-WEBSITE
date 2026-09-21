@@ -1,0 +1,357 @@
+{
+  "model_name": "google/siglip-base-patch16-224",
+  "parameters_million": 203.16,
+  "environment": {
+    "python_version": "3.12.3",
+    "pytorch_version": "2.11.0+cu128",
+    "cuda_available": true,
+    "cuda_version": "12.8",
+    "device_name": "NVIDIA GeForce RTX 5070",
+    "total_vram_gb": 11.49,
+    "torchvision_version": "0.26.0+cu128",
+    "transformers_version": "5.17.0",
+    "pillow_version": "12.3.0"
+  },
+  "vram_metrics": {
+    "initial_allocated_mb": 0.0,
+    "model_resident_mb": 402.37,
+    "peak_allocated_mb": 419.75,
+    "peak_reserved_mb": 480.0,
+    "free_vram_on_card_gb": 11.08
+  },
+  "timings": {
+    "model_load_seconds": 5.3,
+    "single_image_latency_ms": 24.29,
+    "batch_10_latency_ms": 269.03,
+    "estimated_batch_50_seconds": 1.21,
+    "estimated_batch_100_seconds": 2.29
+  },
+  "accuracy": {
+    "benchmark_sample_size": 10,
+    "top1_accuracy_percent": 70.0,
+    "top3_accuracy_percent": 100.0,
+    "average_similarity_margin": 0.0357
+  },
+  "category_breakdown": [
+    {
+      "category_id": "technical_workshop",
+      "category_name": "Technical Workshop",
+      "ground_truth_text": "engineering students participating in a hands-on technical workshop with electronic hardware",
+      "ground_truth_score": 0.0595,
+      "top_distractor_score": -0.0173,
+      "similarity_margin": 0.0768,
+      "top1_match": true,
+      "top3_match": true,
+      "ranked_predictions": [
+        {
+          "text": "engineering students participating in a hands-on technical workshop with electronic hardware",
+          "score": 0.0595
+        },
+        {
+          "text": "faculty administrative senate meeting",
+          "score": -0.0173
+        },
+        {
+          "text": "classical cultural dance performance",
+          "score": -0.0388
+        },
+        {
+          "text": "annual sports track athletic meet",
+          "score": -0.0631
+        },
+        {
+          "text": "students receiving an award trophy on stage",
+          "score": -0.0968
+        }
+      ]
+    },
+    {
+      "category_id": "laboratory_activity",
+      "category_name": "Laboratory Activity",
+      "ground_truth_text": "students conducting scientific experiments with chemical laboratory glassware and reagents",
+      "ground_truth_score": 0.0184,
+      "top_distractor_score": -0.0407,
+      "similarity_margin": 0.0591,
+      "top1_match": true,
+      "top3_match": true,
+      "ranked_predictions": [
+        {
+          "text": "students conducting scientific experiments with chemical laboratory glassware and reagents",
+          "score": 0.0184
+        },
+        {
+          "text": "cultural music performance in college auditorium",
+          "score": -0.0407
+        },
+        {
+          "text": "guest lecture delivered in large seminar hall",
+          "score": -0.0465
+        },
+        {
+          "text": "sports football tournament on campus ground",
+          "score": -0.0726
+        },
+        {
+          "text": "outdoor campus gathering on open college quad lawn",
+          "score": -0.0822
+        }
+      ]
+    },
+    {
+      "category_id": "project_demonstration",
+      "category_name": "Student Project Demonstration",
+      "ground_truth_text": "students demonstrating an engineering project prototype with poster presentation boards",
+      "ground_truth_score": 0.0055,
+      "top_distractor_score": -0.0561,
+      "similarity_margin": 0.0616,
+      "top1_match": true,
+      "top3_match": true,
+      "ranked_predictions": [
+        {
+          "text": "students demonstrating an engineering project prototype with poster presentation boards",
+          "score": 0.0055
+        },
+        {
+          "text": "cultural dance drama in auditorium",
+          "score": -0.0561
+        },
+        {
+          "text": "faculty academic meeting in boardroom",
+          "score": -0.0562
+        },
+        {
+          "text": "outdoor sports athletics running event",
+          "score": -0.0606
+        },
+        {
+          "text": "group photo of graduates in academic regalia",
+          "score": -0.0878
+        }
+      ]
+    },
+    {
+      "category_id": "award_ceremony",
+      "category_name": "Award Ceremony",
+      "ground_truth_text": "students receiving gold medals and achievement award certificates on stage podium",
+      "ground_truth_score": 0.0594,
+      "top_distractor_score": -0.0124,
+      "similarity_margin": 0.0719,
+      "top1_match": true,
+      "top3_match": true,
+      "ranked_predictions": [
+        {
+          "text": "students receiving gold medals and achievement award certificates on stage podium",
+          "score": 0.0594
+        },
+        {
+          "text": "faculty curriculum review committee meeting",
+          "score": -0.0124
+        },
+        {
+          "text": "laboratory chemistry experiment with test tubes",
+          "score": -0.0294
+        },
+        {
+          "text": "students relaxing outdoors on campus green lawn",
+          "score": -0.0427
+        },
+        {
+          "text": "students soldering circuit boards in technical workshop",
+          "score": -0.1086
+        }
+      ]
+    },
+    {
+      "category_id": "faculty_event",
+      "category_name": "Faculty Event",
+      "ground_truth_text": "college faculty members and department heads meeting in formal conference room",
+      "ground_truth_score": -0.014,
+      "top_distractor_score": -0.0012,
+      "similarity_margin": -0.0127,
+      "top1_match": false,
+      "top3_match": true,
+      "ranked_predictions": [
+        {
+          "text": "student track and field running competition",
+          "score": -0.0012
+        },
+        {
+          "text": "hands-on soldering and microcontroller workshop",
+          "score": -0.0067
+        },
+        {
+          "text": "college faculty members and department heads meeting in formal conference room",
+          "score": -0.014
+        },
+        {
+          "text": "chemistry laboratory titration experiment",
+          "score": -0.0292
+        },
+        {
+          "text": "college rock music concert with colorful stage lights",
+          "score": -0.0438
+        }
+      ]
+    },
+    {
+      "category_id": "cultural_event",
+      "category_name": "Cultural Event",
+      "ground_truth_text": "students performing colorful traditional dance and music on auditorium stage",
+      "ground_truth_score": 0.0285,
+      "top_distractor_score": 0.0363,
+      "similarity_margin": -0.0078,
+      "top1_match": false,
+      "top3_match": true,
+      "ranked_predictions": [
+        {
+          "text": "hardware prototype demonstration for judges",
+          "score": 0.0363
+        },
+        {
+          "text": "students performing colorful traditional dance and music on auditorium stage",
+          "score": 0.0285
+        },
+        {
+          "text": "executive faculty senate committee meeting",
+          "score": 0.0023
+        },
+        {
+          "text": "students running 100m sprint race on sports track",
+          "score": -0.0637
+        },
+        {
+          "text": "students working on oscilloscope in electronics lab",
+          "score": -0.0914
+        }
+      ]
+    },
+    {
+      "category_id": "sports_event",
+      "category_name": "Sports Event",
+      "ground_truth_text": "student athletes competing in outdoor track and field running race on sports field",
+      "ground_truth_score": 0.0156,
+      "top_distractor_score": -0.0102,
+      "similarity_margin": 0.0258,
+      "top1_match": true,
+      "top3_match": true,
+      "ranked_predictions": [
+        {
+          "text": "student athletes competing in outdoor track and field running race on sports field",
+          "score": 0.0156
+        },
+        {
+          "text": "award felicitation ceremony with mementos and trophies",
+          "score": -0.0102
+        },
+        {
+          "text": "keynote speaker addressing audience at academic lecture",
+          "score": -0.0198
+        },
+        {
+          "text": "formal faculty staff meeting around conference table",
+          "score": -0.0578
+        },
+        {
+          "text": "students conducting precision microscopy in laboratory",
+          "score": -0.119
+        }
+      ]
+    },
+    {
+      "category_id": "group_photograph",
+      "category_name": "Group Photograph",
+      "ground_truth_text": "formal group photograph of event participants and faculty mentors posed together",
+      "ground_truth_score": -0.0263,
+      "top_distractor_score": 0.007,
+      "similarity_margin": -0.0333,
+      "top1_match": false,
+      "top3_match": true,
+      "ranked_predictions": [
+        {
+          "text": "empty auditorium stage before guest lecture",
+          "score": 0.007
+        },
+        {
+          "text": "formal group photograph of event participants and faculty mentors posed together",
+          "score": -0.0263
+        },
+        {
+          "text": "chemical flask experiment in fume hood",
+          "score": -0.041
+        },
+        {
+          "text": "sprinters racing across sports athletic finish line",
+          "score": -0.0416
+        },
+        {
+          "text": "single student working alone with soldering iron",
+          "score": -0.0778
+        }
+      ]
+    },
+    {
+      "category_id": "guest_lecture",
+      "category_name": "Guest Lecture",
+      "ground_truth_text": "distinguished keynote speaker delivering an expert guest lecture from auditorium podium",
+      "ground_truth_score": 0.0765,
+      "top_distractor_score": -0.0217,
+      "similarity_margin": 0.0983,
+      "top1_match": true,
+      "top3_match": true,
+      "ranked_predictions": [
+        {
+          "text": "distinguished keynote speaker delivering an expert guest lecture from auditorium podium",
+          "score": 0.0765
+        },
+        {
+          "text": "chemistry laboratory titration with pipettes and beakers",
+          "score": -0.0217
+        },
+        {
+          "text": "traditional cultural folk dance performance",
+          "score": -0.0241
+        },
+        {
+          "text": "hands-on electronics PCB assembly workshop",
+          "score": -0.0286
+        },
+        {
+          "text": "students playing competitive basketball match on sports court",
+          "score": -0.061
+        }
+      ]
+    },
+    {
+      "category_id": "campus_activity",
+      "category_name": "Campus Activity",
+      "ground_truth_text": "students gathered outdoors enjoying campus green lawns and college academic walkways",
+      "ground_truth_score": 0.0265,
+      "top_distractor_score": 0.0087,
+      "similarity_margin": 0.0178,
+      "top1_match": true,
+      "top3_match": true,
+      "ranked_predictions": [
+        {
+          "text": "students gathered outdoors enjoying campus green lawns and college academic walkways",
+          "score": 0.0265
+        },
+        {
+          "text": "hardware demonstration with FPGA odometry board",
+          "score": 0.0087
+        },
+        {
+          "text": "gold medal award presentation ceremony",
+          "score": -0.0215
+        },
+        {
+          "text": "guest lecture speaker at auditorium podium",
+          "score": -0.0265
+        },
+        {
+          "text": "formal faculty meeting in closed boardroom",
+          "score": -0.0715
+        }
+      ]
+    }
+  ]
+}

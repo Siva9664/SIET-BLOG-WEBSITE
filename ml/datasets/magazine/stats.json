@@ -1,0 +1,44 @@
+{
+  "total_documents": 3,
+  "total_pages": 3,
+  "total_stories": 5,
+  "total_photos": 0,
+  "unique_photos": 0,
+  "uncertain_photo_stories": 0,
+  "examples_total": 40,
+  "train_count": 24,
+  "validation_count": 16,
+  "adversarial_count": 4,
+  "exact_duplicates": 0,
+  "duplicate_rate_pct": 0.0,
+  "grounding_failures": 0,
+  "examples_by_task": {
+    "section_classification": 5,
+    "headline_generation": 5,
+    "summary_generation": 5,
+    "grounded_rewriting": 5,
+    "keyword_extraction": 5,
+    "content_length_classification": 5,
+    "template_recommendation": 5,
+    "layout_intent": 5
+  },
+  "examples_by_story_type": {
+    "victories": 6,
+    "projects": 6,
+    "achievements": 6,
+    "workshops": 6,
+    "other": 6,
+    "unknown": 10
+  },
+  "examples_by_template": {
+    "template_achievement_spotlight_01": 2,
+    "template_text_image_balanced_05": 3
+  },
+  "examples_by_department": {
+    "Information Technology": 6,
+    "Mechanical Engineering": 6,
+    "Computer Science & Engineering": 12,
+    "Electronics & Communication Engineering": 6,
+    "Campus General": 10
+  }
+}

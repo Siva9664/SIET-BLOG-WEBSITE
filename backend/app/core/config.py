@@ -64,6 +64,17 @@ class Settings(BaseSettings):
     INTERNAL_API_KEY: SecretStr = SecretStr("internal-api-key-secret")
     CONTACT_RECEIVER_EMAIL: str = "ai.lab@siet.ac.in"
 
+    # AI & Editorial Intelligence Provider Settings
+    AI_PROVIDER: str = "qwen"
+    AI_FALLBACK_PROVIDER: str | None = "gemini"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "qwen3:14b"
+    OLLAMA_TIMEOUT: float = 60.0
+    GEMINI_API_KEY: SecretStr = SecretStr("")
+    GEMINI_MODEL: str = "gemini-1.5-flash"
+    OPENAI_API_KEY: SecretStr = SecretStr("")
+    OPENAI_MODEL: str = "gpt-3.5-turbo"
+
     RSS_FEEDS: list[dict[str, str]] = [
         {
             "feed_url": "https://news.google.com/rss/search?q=machine+learning",
