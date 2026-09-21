@@ -243,39 +243,56 @@ async def test_end_to_end_api_endpoints(temp_assets):
     - POST /admin/magazine/generate/end-to-end-json
     - POST /admin/magazine/generate/end-to-end (multipart)
     """
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # 1. Test JSON endpoint
-        json_payload = {
-            "department_or_lab": "IoT Lab",
-            "event_name": "IoT Embedded Systems Expo",
-            "raw_notes": "Sensors and smart telemetry units designed by students.",
-            "target_page_budget": 2,
-            "publish_immediately": True,
-            "use_llm": False,
-        }
-        res = await client.post("/api/v1/admin/magazine/generate/end-to-end-json", json=json_payload)
-        assert res.status_code == 200, res.text
-        data = res.json()
-        assert data.get("success") is True
-        mag_data = data["data"]
-        assert mag_data["total_pages"] >= 2
-        assert mag_data["pdf_url"] is not None
-        assert len(mag_data["stage_telemetry"]) == 9
+    from app.modules.auth.models import User, UserRole
+    from app.shared.auth.dependencies import require_lab_admin
 
-        # 2. Test Multipart endpoint
-        files = {
-            "file": ("notes.txt", b"AI Computer Vision Workshop notes and lab presentations.", "text/plain"),
-            "photos": ("event_snap.jpg", open(temp_assets["photo_path"], "rb"), "image/jpeg"),
-        }
-        form_data = {
-            "department_or_lab": "AI Lab",
-            "event_name": "Vision AI Workshop",
-            "target_page_budget": "2",
-            "use_llm": "false",
-        }
-        res_mp = await client.post("/api/v1/admin/magazine/generate/end-to-end", data=form_data, files=files)
-        assert res_mp.status_code == 200, res_mp.text
-        data_mp = res_mp.json()
-        assert data_mp.get("success") is True
-        assert data_mp["data"]["total_pages"] >= 2
+    admin_user = User(
+        id=1,
+        name="Super Admin",
+        email="admin@siet.in",
+        role=UserRole.SUPER_ADMIN.value,
+        is_active=True,
+        is_verified=True,
+    )
+    app.dependency_overrides[require_lab_admin] = lambda: admin_user
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. Test JSON endpoint
+            json_payload = {
+                "department_or_lab": "IoT Lab",
+                "event_name": "IoT Embedded Systems Expo",
+                "raw_notes": "Sensors and smart telemetry units designed by students.",
+                "target_page_budget": 2,
+                "publish_immediately": True,
+                "use_llm": False,
+            }
+            res = await client.post("/api/v1/admin/magazine/generate/end-to-end-json", json=json_payload)
+            assert res.status_code == 200, res.text
+            data = res.json()
+            assert data.get("success") is True
+            mag_data = data["data"]
+            assert mag_data["total_pages"] >= 2
+            assert mag_data["pdf_url"] is not None
+            assert len(mag_data["stage_telemetry"]) == 9
+
+            # 2. Test Multipart endpoint
+            files = {
+                "file": ("notes.txt", b"AI Computer Vision Workshop notes and lab presentations.", "text/plain"),
+                "photos": ("event_snap.jpg", open(temp_assets["photo_path"], "rb"), "image/jpeg"),
+            }
+            form_data = {
+                "department_or_lab": "AI Lab",
+                "event_name": "Vision AI Workshop",
+                "target_page_budget": "2",
+                "use_llm": "false",
+            }
+            res_mp = await client.post("/api/v1/admin/magazine/generate/end-to-end", data=form_data, files=files)
+            assert res_mp.status_code == 200, res_mp.text
+            data_mp = res_mp.json()
+            assert data_mp.get("success") is True
+            assert data_mp["data"]["total_pages"] >= 2
+    finally:
+        app.dependency_overrides.pop(require_lab_admin, None)
+
