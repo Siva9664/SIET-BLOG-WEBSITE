@@ -6,6 +6,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sqlalchemy import select
 from app.core.database import async_session_maker
+import app.modules.labs.models  # noqa: F401
+import app.modules.magazine.models  # noqa: F401
 from app.modules.auth.models import User
 from app.core.security import hash_password
 
