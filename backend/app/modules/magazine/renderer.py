@@ -120,6 +120,19 @@ def render_magazine_pdf_from_blueprint(
                 cap_text = captions[0] if captions else "Event highlight photograph."
                 page.insert_textbox(rect, cap_text[:80], fontsize=8.5, fontname="tiro", color=_hex_to_rgb("#666666"), align=fitz.TEXT_ALIGN_LEFT)
 
+            elif role in ("image", "photo"):
+                images = content.get("extracted_images") or content.get("gallery_images") or content.get("images") or []
+                img_idx = reg.get("image_index", 0)
+                if img_idx < len(images):
+                    img_item = images[img_idx]
+                    url = img_item.get("url") if isinstance(img_item, dict) else str(img_item)
+                    img_path = url.lstrip("/")
+                    if os.path.exists(img_path):
+                        try:
+                            page.insert_image(rect, filename=img_path, keep_proportion=True)
+                        except Exception:
+                            pass
+
         # Save Preview PNG
         pix = page.get_pixmap(dpi=150)
         img_name = f"render_p{page_num}_{uuid.uuid4().hex[:6]}.png"

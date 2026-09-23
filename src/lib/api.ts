@@ -479,6 +479,10 @@ export const api = {
     return req<{ message: string; id: string }>(`/admin/magazine/${id}/publish`, { method: "POST" });
   },
 
+  adminApproveMagazine: async (id: string) => {
+    return req<{ message: string; id: string; status: string }>(`/admin/magazine/${id}/approve`, { method: "POST" });
+  },
+
   adminUnpublishMagazine: async (id: string) => {
     return req<{ message: string; id: string }>(`/admin/magazine/${id}/unpublish`, { method: "POST" });
   },
@@ -523,6 +527,85 @@ export const api = {
       extracted_notes: string;
       extracted_images: { id: string; url: string; file_name: string }[];
     };
+  },
+
+  adminAnalyzeAndMatch: async (formData: FormData) => {
+    const res = await req<any>("/admin/magazine/ai/analyze-and-match", {
+      method: "POST",
+      body: formData,
+    });
+    return (res?.data || res) as {
+      session_id: string;
+      source_file_path: string;
+      original_filename: string;
+      file_size_bytes: number;
+      lab_department: string;
+      title: string;
+      issue_date: string;
+      template_id: string;
+      events: {
+        event_id: string;
+        title: string;
+        date: string;
+        category: string;
+        people: string[];
+        achievements: string[];
+        organization: string;
+        source_pages: number[];
+        matched_photos: {
+          id: string;
+          file_name: string;
+          url: string;
+          disk_path: string;
+          caption: string;
+          confidence: number;
+          status: "HIGH" | "REVIEW_RECOMMENDED" | "UNMATCHED";
+          needs_review: boolean;
+          evidence: string[];
+        }[];
+      }[];
+      unmatched_photos: {
+        id: string;
+        file_name: string;
+        url: string;
+        disk_path: string;
+        caption: string;
+        confidence: number;
+        status: "UNMATCHED";
+        needs_review: boolean;
+        evidence: string[];
+      }[];
+      associations: any[];
+      all_uploaded_photos: {
+        id: string;
+        url: string;
+        file_name: string;
+        disk_path: string;
+      }[];
+      stats: {
+        total_events: number;
+        total_photos: number;
+        auto_matched_count: number;
+        review_recommended_count: number;
+        unmatched_count: number;
+      };
+    };
+  },
+
+  adminGenerateFromApproved: async (payload: {
+    source_file_path: string;
+    lab_department: string;
+    title: string;
+    issue_date: string;
+    template_id: string;
+    approved_associations: Record<string, any[]>;
+    all_photos: any[];
+  }) => {
+    const res = await req<any>("/admin/magazine/ai/generate-from-approved", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return (res?.data || res);
   },
 
   adminDeleteMagazine: async (id: string) => {

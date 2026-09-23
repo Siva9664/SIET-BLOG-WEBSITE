@@ -45,7 +45,7 @@ class SIETDefaultV1LayoutPlanner:
             return PageType.INTERVIEW
         elif st in {"news", "highlights", "briefs"} or li in {"news_digest", "capsule_grid"}:
             return PageType.NEWS_HIGHLIGHTS
-        elif st in {"photo_feature", "gallery"} or li in {"photo_feature", "gallery"} or photo_count >= 4:
+        elif st in {"photo_feature", "gallery"} or li in {"photo_feature", "gallery"} or photo_count >= 3:
             return PageType.PHOTO_FEATURE
         elif st in {"victory", "championship", "winners"} or li == "victory_celebration":
             return PageType.VICTORY

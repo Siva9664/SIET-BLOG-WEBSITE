@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
 import type { User, MagazineIssue } from "@/lib/types";
 import { ErrorState } from "@/components/shared";
+import { EventPhotoMagazineWizard } from "./EventPhotoMagazineWizard";
 
 interface GalleryItem {
   id: string;
@@ -50,6 +51,7 @@ export default function AdminMagazinePage() {
   // Modal State
   const [uploadMode, setUploadMode] = useState<"pdf" | "event">("event");
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isEventPhotoWizardOpen, setIsEventPhotoWizardOpen] = useState(false);
 
   // Form Fields - Minimum Inputs for AI
   const [eventName, setEventName] = useState("");
@@ -474,7 +476,8 @@ export default function AdminMagazinePage() {
           await api.adminUploadMagazineGallery(magId, gFd);
         }
 
-        // 5. Publish
+        // 5. Approval gate, then publish
+        await api.adminApproveMagazine(magId);
         await api.adminPublishMagazine(magId);
       }
 
@@ -492,8 +495,10 @@ export default function AdminMagazinePage() {
     try {
       if (issue.status === "published") {
         await api.adminUnpublishMagazine(issue.id);
-      } else {
+      } else if (issue.status === "approved") {
         await api.adminPublishMagazine(issue.id);
+      } else {
+        await api.adminApproveMagazine(issue.id);
       }
       loadIssues();
     } catch (err: any) {
@@ -535,10 +540,10 @@ export default function AdminMagazinePage() {
             <span>🎨</span> Edit Active Template
           </button>
           <button
-            onClick={() => handleOpenUpload("event")}
+            onClick={() => setIsEventPhotoWizardOpen(true)}
             className="font-util text-eyebrow uppercase tracking-wider text-paper bg-accent hover:opacity-90 border border-accent transition-opacity px-4 py-2 cursor-pointer font-bold flex items-center gap-1.5 shadow-sm"
           >
-            <span>✨</span> Create Event Magazine
+            <span>✨</span> Create Event Magazine (AI Photos)
           </button>
           <button
             onClick={() => handleOpenUpload("pdf")}
@@ -618,6 +623,21 @@ export default function AdminMagazinePage() {
                           <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
                           Published
                         </span>
+                      ) : issue.status === "approved" ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 border border-blue-200 uppercase tracking-wider font-semibold">
+                          <span className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                          Approved
+                        </span>
+                      ) : issue.status === "review" ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] text-violet-700 bg-violet-50 px-2 py-0.5 border border-violet-200 uppercase tracking-wider font-semibold">
+                          <span className="w-1.5 h-1.5 bg-violet-500 rounded-full" />
+                          Review Required
+                        </span>
+                      ) : issue.status === "failed" ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] text-red-700 bg-red-50 px-2 py-0.5 border border-red-200 uppercase tracking-wider font-semibold">
+                          <span className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                          Failed
+                        </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 border border-amber-200 uppercase tracking-wider font-semibold">
                           Draft
@@ -665,7 +685,11 @@ export default function AdminMagazinePage() {
                           : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
                       }`}
                     >
-                      {issue.status === "published" ? "Unpublish" : "Publish Now"}
+                      {issue.status === "published"
+                        ? "Unpublish"
+                        : issue.status === "approved"
+                          ? "Publish Now"
+                          : "Approve"}
                     </button>
 
                     {confirmDeleteId === issue.id ? (
@@ -1334,6 +1358,15 @@ export default function AdminMagazinePage() {
           </div>
         </div>
       )}
+
+      {/* PRODUCTION EVENT PHOTOS -> AI MATCHING -> MAGAZINE GENERATION WIZARD */}
+      <EventPhotoMagazineWizard
+        isOpen={isEventPhotoWizardOpen}
+        onClose={() => setIsEventPhotoWizardOpen(false)}
+        onSuccess={() => {
+          loadIssues();
+        }}
+      />
     </div>
   );
 }

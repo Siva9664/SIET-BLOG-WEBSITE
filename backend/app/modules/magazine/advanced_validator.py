@@ -151,12 +151,17 @@ class AdvancedMagazineValidator:
         # 3. Photo/Story Association & Isolation (Strict Invariant)
         # ---------------------------------------------------------------------
         if all_event_photos_map and story_id:
-            # Photos on this page must belong to story_id
-            allowed_photos = set(all_event_photos_map.get(story_id, []))
+            story_event_ids = set(source_story.get("event_ids", [])) if source_story else set()
             for p_id in attached_photos:
                 # Check if this photo was assigned to another story
                 for other_story_id, other_photos in all_event_photos_map.items():
-                    if other_story_id != story_id and p_id in other_photos:
+                    is_same = (
+                        other_story_id == story_id
+                        or other_story_id in story_event_ids
+                        or story_id.endswith(f"_{other_story_id}")
+                        or other_story_id.endswith(f"_{story_id}")
+                    )
+                    if not is_same and p_id in other_photos:
                         msg = (
                             f"CRITICAL PHOTO ISOLATION VIOLATION: Photo '{p_id}' belongs to "
                             f"event '{other_story_id}' but was attached to page '{page_num}' (story '{story_id}')"

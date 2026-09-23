@@ -95,11 +95,17 @@ class MagazineTemplateSpec(BaseModel):
         default_factory=dict,
         description="Map of page_type key to PageTypeSpec.",
     )
-
     def get_page_spec(self, page_type: str) -> PageTypeSpec:
-        """Retrieves page type specification with fallback to standard event page."""
         spec = self.supported_page_types.get(page_type)
+        if not spec:
+            if page_type == "closing":
+                spec = self.supported_page_types.get("closing_page")
+            elif page_type == "closing_page":
+                spec = self.supported_page_types.get("closing")
+            elif page_type in {"achievement", "victory"}:
+                spec = self.supported_page_types.get("achievement_victory") or self.supported_page_types.get(page_type)
         if not spec:
             # Fallback to standard event page or first available
             spec = self.supported_page_types.get("event") or next(iter(self.supported_page_types.values()))
         return spec
+

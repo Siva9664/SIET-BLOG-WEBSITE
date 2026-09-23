@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     AI_FALLBACK_PROVIDER: str | None = "gemini"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen3:14b"
-    OLLAMA_TIMEOUT: float = 60.0
+    OLLAMA_TIMEOUT: float = 120.0
     GEMINI_API_KEY: SecretStr = SecretStr("")
     GEMINI_MODEL: str = "gemini-1.5-flash"
     OPENAI_API_KEY: SecretStr = SecretStr("")

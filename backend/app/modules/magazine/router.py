@@ -23,6 +23,7 @@ import os
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 from fastapi import (
@@ -53,7 +54,10 @@ from app.modules.magazine.models import (
 )
 from app.modules.magazine.visual_analyzer import analyze_template_pdf_visual_blueprint
 from app.modules.magazine.renderer import render_magazine_pdf_from_blueprint
-from app.modules.magazine.validator import validate_rendered_magazine
+from app.modules.magazine.generation_pipeline import MagazineGenerationPipeline
+from app.modules.magazine.event_segmenter import segment_document_events
+from app.modules.magazine.photo_associator import PhotoAssociator
+from app.modules.magazine.templates.siet_default_v1 import get_siet_default_v1_template
 from app.modules.magazine.pipeline import compile_magazine_pdf, process_magazine_pdf
 from app.modules.magazine.ai_service import (
     generate_full_magazine_content,
@@ -70,6 +74,7 @@ from app.shared.types.content import ContentKind, MagazineType
 
 UPLOAD_DIR = "uploads/magazines"
 MAGAZINE_FEATURED_DAYS = 90
+DEFAULT_GENERATION_TEMPLATE_ID = "SIET_DEFAULT_V1"
 
 router = APIRouter(prefix="/magazine", tags=["Magazine"])
 admin_router = APIRouter(prefix="/admin/magazine", tags=["Admin Magazine"])
@@ -102,6 +107,30 @@ def _save_upload(file_bytes: bytes, ext: str, prefix: str = "img") -> str:
     with open(path, "wb") as f:
         f.write(file_bytes)
     return f"/{UPLOAD_DIR}/{filename}"
+
+
+def _resolve_generation_template(template_id: str):
+    """Return the renderer-backed template selected by the administrator."""
+    normalized_id = (template_id or DEFAULT_GENERATION_TEMPLATE_ID).strip()
+    if normalized_id != DEFAULT_GENERATION_TEMPLATE_ID:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported generation template: {normalized_id}",
+        )
+    return get_siet_default_v1_template()
+
+
+def _ensure_managed_source_path(source_file_path: str) -> str:
+    """Only permit the source documents saved by the analysis endpoint."""
+    source_root = os.path.abspath(os.path.join(UPLOAD_DIR, "source"))
+    resolved_path = os.path.abspath(source_file_path)
+    try:
+        is_managed = os.path.commonpath([source_root, resolved_path]) == source_root
+    except ValueError:
+        is_managed = False
+    if not is_managed or not os.path.isfile(resolved_path):
+        raise HTTPException(status_code=404, detail="Analyzed source document not found.")
+    return resolved_path
 
 
 def _magazine_row(m: Magazine) -> dict:
@@ -257,7 +286,7 @@ async def download_magazine_issue(slug: str, db: AsyncSession = Depends(get_db))
             selectinload(Magazine.pages),
             selectinload(Magazine.toc_entries),
         )
-        .where(Magazine.slug == slug)
+        .where(Magazine.slug == slug, Magazine.status == "published")
     )
     mag = (await db.execute(query)).scalars().first()
     if not mag:
@@ -281,6 +310,7 @@ async def get_magazine_by_slug_or_id(slug_or_id: str, request: Request, db: Asyn
         selectinload(Magazine.pages), selectinload(Magazine.toc_entries),
         selectinload(Magazine.achievements), selectinload(Magazine.project_links),
     )
+    query = query.where(Magazine.status == "published")
     query = query.where(Magazine.id == int(slug_or_id)) if slug_or_id.isdigit() else query.where(Magazine.slug == slug_or_id)
     row = (await db.execute(query)).scalars().first()
     if not row:
@@ -785,10 +815,21 @@ async def publish_magazine(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin),
 ):
-    """Publish a draft magazine. Sets status=published and stamps published_at."""
+    """Publish an approval-cleared magazine and stamp its publication time."""
     mag = await db.get(Magazine, magazine_id)
     if not mag:
         raise NotFoundException("Magazine not found.")
+
+    if mag.status != "approved":
+        raise HTTPException(
+            status_code=400,
+            detail="Magazine must be approved after review before it can be published.",
+        )
+    if mag.orchestrator_score is not None and mag.orchestrator_score < 0.70:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot publish magazine: validation score ({mag.orchestrator_score}) is below the required 0.70 threshold."
+        )
 
     now = datetime.now(timezone.utc)
     mag.status = "published"
@@ -799,17 +840,44 @@ async def publish_magazine(
     return {"message": "Magazine published.", "id": str(mag.id), "isFeatured": mag.is_featured}
 
 
+@admin_router.post("/{magazine_id}/approve")
+async def approve_magazine(
+    magazine_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    """Persist the administrative approval required before publication."""
+    mag = await db.get(Magazine, magazine_id)
+    if not mag:
+        raise NotFoundException("Magazine not found.")
+    if mag.status == "failed":
+        raise HTTPException(status_code=400, detail="A failed generation cannot be approved.")
+    if mag.status not in {"draft", "review", "approved"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Magazine in '{mag.status}' status is not ready for approval.",
+        )
+    if mag.orchestrator_score is not None and mag.orchestrator_score < 0.70:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot approve magazine: validation score ({mag.orchestrator_score}) is below the required 0.70 threshold.",
+        )
+    mag.status = "approved"
+    await db.commit()
+    return {"message": "Magazine approved for publication.", "id": str(mag.id), "status": mag.status}
+
+
 @admin_router.post("/{magazine_id}/unpublish")
 async def unpublish_magazine(
     magazine_id: int,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin),
 ):
-    """Unpublish a magazine back to draft."""
+    """Unpublish a magazine while retaining its completed approval."""
     mag = await db.get(Magazine, magazine_id)
     if not mag:
         raise NotFoundException("Magazine not found.")
-    mag.status = "draft"
+    mag.status = "approved"
     mag.is_featured = False
     await db.commit()
     return {"message": "Magazine unpublished.", "id": str(mag.id)}
@@ -925,60 +993,426 @@ async def api_auto_generate_full(
     return success(res)
 
 
+class ApprovedGenerationPayload(BaseModel):
+    source_file_path: str
+    lab_department: str = "Artificial Intelligence and Data Science"
+    title: str = ""
+    issue_date: str = ""
+    template_id: str = "SIET_DEFAULT_V1"
+    approved_associations: Dict[str, List[Any]] = {}
+    all_photos: List[Dict[str, Any]] = []
+
+
+async def _execute_and_persist_magazine(
+    source_path: str,
+    department: str,
+    issue_title: str,
+    final_event_date: str,
+    event_photos_map: Optional[Dict[str, List[Any]]],
+    uploaded_photos: Optional[List[Dict[str, Any]]],
+    original_filename: str,
+    file_size_bytes: int,
+    template_id: str,
+    db: AsyncSession,
+    current_user: Any,
+) -> Dict[str, Any]:
+    final_event_name = issue_title.strip() if issue_title.strip() else (department.strip() if department.strip() else "Artificial Intelligence Research Lab")
+    final_date_str = final_event_date.strip() if final_event_date.strip() else "August 2026"
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    pdf_filename = f"rendered_issue_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}.pdf"
+    output_pdf_path = os.path.join(UPLOAD_DIR, pdf_filename)
+
+    template = _resolve_generation_template(template_id)
+    pipeline = MagazineGenerationPipeline(template_spec=template)
+
+    try:
+        planned_pages, validation_report, output_pdf_path = await pipeline.generate_magazine(
+            source_text_or_path=source_path,
+            department=department,
+            issue_title=final_event_name,
+            event_photos_map=event_photos_map,
+            uploaded_photos=uploaded_photos,
+            output_pdf_path=output_pdf_path,
+        )
+    except ValueError as e:
+        logger.warning(f"Magazine generation input rejected: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception(f"Magazine generation pipeline error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Magazine generation pipeline failed: {str(e)}"
+        )
+
+    page_previews = pipeline.renderer.generated_previews
+    total_pages = len(planned_pages)
+
+    cover_preview = page_previews[0] if page_previews else None
+    if cover_preview and not cover_preview.startswith("/"):
+        cover_preview = "/" + cover_preview
+
+    extracted_images = []
+    seen_photos = set()
+    for img in getattr(pipeline, "extracted_images", []):
+        url = img.get("url") if isinstance(img, dict) else str(img)
+        if url and url not in seen_photos:
+            seen_photos.add(url)
+            extracted_images.append({
+                "url": url if url.startswith("/") else f"/{url}",
+                "file_name": os.path.basename(url),
+                "is_masthead": img.get("is_masthead", False) if isinstance(img, dict) else False,
+            })
+
+    for p in planned_pages:
+        for ph in p.get("attached_photos", []):
+            url = ph.get("url") if isinstance(ph, dict) else str(ph)
+            img_url = url if url.startswith("/") else f"/{url}"
+            if img_url not in seen_photos:
+                seen_photos.add(img_url)
+                extracted_images.append({
+                    "url": img_url,
+                    "file_name": os.path.basename(img_url),
+                    "is_masthead": False,
+                })
+
+    lead_story = planned_pages[2] if len(planned_pages) > 2 else planned_pages[0]
+    writeup_headline = lead_story.get("headline", final_event_name)
+    writeup_text = lead_story.get("body", "")
+    toc_summary = planned_pages[1].get("body", "") if len(planned_pages) > 1 else ""
+
+    captions = []
+    for p in planned_pages:
+        captions.extend(p.get("captions", []))
+
+    render_result = {
+        "pdf_path": output_pdf_path,
+        "total_pages": total_pages,
+        "page_previews": page_previews,
+    }
+
+    blueprint = {
+        "template_id": template.template_id,
+        "name": template.name,
+        "page_count": total_pages,
+        "pages": [
+            {
+                "page_number": p["page_number"],
+                "page_type": p["page_type"],
+                "headline": p.get("headline", ""),
+                "attached_photos_count": len(p.get("attached_photos", [])),
+            }
+            for p in planned_pages
+        ],
+    }
+
+    base_slug = slugify(final_event_name or "siet-magazine")
+    mag_slug = await _unique_slug(db, base_slug)
+
+    parsed_date = None
+    if final_date_str:
+        try:
+            from dateutil import parser as dt_parser
+            parsed_date = dt_parser.parse(final_date_str)
+        except Exception:
+            parsed_date = None
+
+    mag = Magazine(
+        title=final_event_name,
+        slug=mag_slug,
+        description=lead_story.get("subheadline", "") or "Official SIET College Magazine Digest",
+        event_name=final_event_name,
+        event_date=parsed_date,
+        publication_year=datetime.now(timezone.utc).year,
+        issue_date=parsed_date,
+        status="review" if validation_report.is_valid else "failed",
+        is_featured=False,
+        pdf_url=f"/uploads/magazines/{pdf_filename}",
+        cover_image_url=cover_preview,
+        page_count=total_pages,
+        gallery_images=extracted_images,
+        editorial_plan={
+            "issue_title": final_event_name,
+            "department": department,
+            "template_id": template.template_id,
+            "template_name": template.name,
+            "template_version": template.version,
+            "generation_timestamp": datetime.now(timezone.utc).isoformat(),
+            "created_by_user_id": getattr(current_user, "id", None),
+            "created_by_email": getattr(current_user, "email", None),
+            "source_provenance": {
+                "original_filename": original_filename,
+                "saved_path": source_path,
+                "file_size_bytes": file_size_bytes,
+            },
+            "total_pages": total_pages,
+            "stories_count": max(0, len(planned_pages) - 3),
+            "detected_event_name": final_event_name,
+            "detected_event_date": final_date_str,
+            "attached_photos_summary": {
+                "total_attached_photos": len(extracted_images),
+                "images": extracted_images,
+            },
+            "approved_associations": event_photos_map or {},
+            "pages_summary": [
+                {
+                    "page": p["page_number"],
+                    "type": p["page_type"],
+                    "headline": p.get("headline", ""),
+                    "photo_count": len(p.get("attached_photos", [])),
+                }
+                for p in planned_pages
+            ],
+        },
+        orchestrator_score=validation_report.composite_score if hasattr(validation_report, "composite_score") else 1.0,
+        failure_reason=("; ".join(validation_report.all_issues) if not validation_report.is_valid else None),
+    )
+    db.add(mag)
+    await db.flush()
+
+    for p_idx, p_data in enumerate(planned_pages):
+        prev_url = page_previews[p_idx] if p_idx < len(page_previews) else None
+        if prev_url and not prev_url.startswith("/"):
+            prev_url = "/" + prev_url
+        mag_page = MagazinePage(
+            magazine_id=mag.id,
+            page_number=p_data["page_number"],
+            image_url=prev_url or "",
+            extracted_text=p_data.get("body", "")[:1000],
+        )
+        db.add(mag_page)
+
+    for p_data in planned_pages:
+        if p_data["page_type"] not in {"cover", "contents", "closing", "closing_page"} and p_data.get("headline"):
+            toc = MagazineTOCEntry(
+                magazine_id=mag.id,
+                page_number=p_data["page_number"],
+                heading=p_data["headline"][:250],
+            )
+            db.add(toc)
+
+    await db.commit()
+    await db.refresh(mag)
+
+    val_report_dict = validation_report.model_dump() if hasattr(validation_report, "model_dump") else (
+        validation_report.dict() if hasattr(validation_report, "dict") else {}
+    )
+
+    return {
+        "magazine_id": mag.id,
+        "id": mag.id,
+        "title": mag.title,
+        "slug": mag.slug,
+        "magazine_issue_title": mag.title,
+        "writeup_headline": writeup_headline,
+        "writeup_text": writeup_text,
+        "toc_summary": toc_summary,
+        "captions": captions,
+        "pdf_url": mag.pdf_url,
+        "cover_image_url": mag.cover_image_url,
+        "page_count": mag.page_count,
+        "total_pages": mag.page_count,
+        "pdf_path": render_result.get("pdf_path") or (mag.pdf_url.lstrip("/") if mag.pdf_url else ""),
+        "status": mag.status,
+        "blueprint": blueprint,
+        "render_result": render_result,
+        "validation": val_report_dict,
+        "validation_report": val_report_dict,
+        "validation_summary": {
+            "is_valid": val_report_dict.get("is_valid", True),
+            "composite_score": mag.orchestrator_score or 1.0,
+            "page_count": mag.page_count,
+            "errors": val_report_dict.get("errors", []),
+            "warnings": val_report_dict.get("warnings", []),
+        },
+        "orchestrator_score": mag.orchestrator_score or 1.0,
+        "detected_event_name": final_event_name,
+        "detected_event_date": final_date_str,
+        "extracted_images": extracted_images,
+        "events_count": max(0, len(planned_pages) - 3),
+        "stories_count": max(0, len(planned_pages) - 3),
+        "photos_count": len([img for img in extracted_images if not img.get("is_masthead")]),
+        "photo_associations": getattr(pipeline, "photo_associations", []),
+    }
+
+
 @admin_router.post("/ai/auto-generate-from-file")
 async def api_auto_generate_from_file(
     file: UploadFile = File(...),
+    photos: List[UploadFile] = File(default=[]),
     event_name: str = Form(""),
     event_date: str = Form(""),
+    db: AsyncSession = Depends(get_db),
     current_user=Depends(require_admin),
 ):
     """
-    FILE UPLOAD AUTO-RECOGNITION & ONE-CLICK AUTO-FILL:
-    Extracts text + embedded images from docx, pdf, or txt file, auto-detects event info,
-    and feeds into the AI generation pipeline in 1 call.
+    FILE UPLOAD AUTO-RECOGNITION & MULTI-PAGE SIET MAGAZINE GENERATION PIPELINE:
+    1. Extracts & segments events/achievements from source document.
+    2. Enforces event-scoped photo association with strict photo isolation.
+    3. Generates grounded Qwen3-14B editorial content.
+    4. Plans multi-page magazine layout using SIET_DEFAULT_V1.
+    5. Deterministically renders multi-page magazine PDF and high-res page previews.
+    6. Persists Magazine record, MagazinePages, and TOC entries in database.
+    7. Returns complete magazine metadata and generation outputs.
     """
     file_bytes = await file.read()
     if not file_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    try:
-        parsed_data = parse_event_file(file_bytes, file.filename or "event_file.txt")
-    except Exception as e:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Failed to parse uploaded file '{file.filename}': {str(e)}"
-        )
+    os.makedirs("uploads/magazines/source", exist_ok=True)
+    source_filename = f"source_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}_{file.filename or 'doc.pdf'}"
+    source_path = os.path.join("uploads/magazines/source", source_filename)
+    with open(source_path, "wb") as f:
+        f.write(file_bytes)
 
-    extracted_notes = parsed_data["extracted_notes"]
-    extracted_images = parsed_data["extracted_images"]
+    uploaded_photo_dicts: List[Dict[str, Any]] = []
+    if photos:
+        os.makedirs("uploads/magazines/extracted", exist_ok=True)
+        for idx, photo_file in enumerate(photos):
+            p_bytes = await photo_file.read()
+            if not p_bytes:
+                continue
+            orig_fn = photo_file.filename or f"photo_{idx+1}.jpg"
+            ext = os.path.splitext(orig_fn)[1].lower() or ".jpg"
+            p_id = f"up_photo_{idx+1}_{uuid.uuid4().hex[:6]}"
+            disk_name = f"{p_id}{ext}"
+            disk_path = os.path.join("uploads/magazines/extracted", disk_name)
+            with open(disk_path, "wb") as pf:
+                pf.write(p_bytes)
+            pub_url = f"/uploads/magazines/extracted/{disk_name}"
+            uploaded_photo_dicts.append({
+                "id": p_id,
+                "url": pub_url,
+                "file_name": orig_fn,
+                "disk_path": disk_path,
+                "is_masthead": False,
+            })
 
-    final_event_name = event_name.strip() if event_name.strip() else parsed_data["detected_event_name"]
-    final_event_date = event_date.strip() if event_date.strip() else parsed_data["detected_event_date"]
+    final_event_name = event_name.strip() if event_name.strip() else "Artificial Intelligence Research Lab"
+    final_event_date = event_date.strip() if event_date.strip() else "August 2026"
 
-    if not extracted_notes and not final_event_name:
-        raise HTTPException(
-            status_code=400,
-            detail="Could not extract any readable content from the uploaded file."
-        )
+    res = await _execute_and_persist_magazine(
+        source_path=source_path,
+        department=final_event_name,
+        issue_title=final_event_name,
+        final_event_date=final_event_date,
+        event_photos_map=None,
+        uploaded_photos=uploaded_photo_dicts,
+        original_filename=file.filename or "doc.pdf",
+        file_size_bytes=len(file_bytes),
+        template_id=DEFAULT_GENERATION_TEMPLATE_ID,
+        db=db,
+        current_user=current_user,
+    )
+    return success(res)
 
-    # Call AI Generation service
-    ai_result = await generate_full_magazine_content(
-        event_name=final_event_name,
-        event_date=final_event_date,
-        raw_notes=extracted_notes,
-        photo_count=len(extracted_images),
+
+@admin_router.post("/ai/analyze-and-match")
+async def api_analyze_and_match(
+    file: UploadFile = File(...),
+    photos: List[UploadFile] = File(default=[]),
+    lab_department: str = Form("Artificial Intelligence and Data Science"),
+    title: str = Form(""),
+    issue_date: str = Form(""),
+    template_id: str = Form("SIET_DEFAULT_V1"),
+    current_user=Depends(require_admin),
+):
+    """
+    Step 1: Upload source document + photos, segment events, and run AI matching with confidence rules:
+    - >= 0.90: HIGH CONFIDENCE (auto-attached)
+    - 0.75 - 0.89: REVIEW RECOMMENDED (auto-attached, flagged)
+    - < 0.75: UNMATCHED (placed in unmatched_photos for admin manual attachment)
+    """
+    _resolve_generation_template(template_id)
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    os.makedirs("uploads/magazines/source", exist_ok=True)
+    source_filename = f"source_{int(datetime.now().timestamp())}_{uuid.uuid4().hex[:6]}_{file.filename or 'doc.pdf'}"
+    source_path = os.path.join("uploads/magazines/source", source_filename)
+    with open(source_path, "wb") as f:
+        f.write(file_bytes)
+
+    uploaded_photo_dicts: List[Dict[str, Any]] = []
+    if photos:
+        os.makedirs("uploads/magazines/extracted", exist_ok=True)
+        for idx, photo_file in enumerate(photos):
+            p_bytes = await photo_file.read()
+            if not p_bytes:
+                continue
+            orig_fn = photo_file.filename or f"photo_{idx+1}.jpg"
+            ext = os.path.splitext(orig_fn)[1].lower() or ".jpg"
+            p_id = f"up_photo_{idx+1}_{uuid.uuid4().hex[:6]}"
+            disk_name = f"{p_id}{ext}"
+            disk_path = os.path.join("uploads/magazines/extracted", disk_name)
+            with open(disk_path, "wb") as pf:
+                pf.write(p_bytes)
+            pub_url = f"/uploads/magazines/extracted/{disk_name}"
+            uploaded_photo_dicts.append({
+                "id": p_id,
+                "url": pub_url,
+                "file_name": orig_fn,
+                "disk_path": disk_path,
+                "is_masthead": False,
+            })
+
+    dept = lab_department.strip() or "Artificial Intelligence and Data Science"
+    mag_source = segment_document_events(
+        file_bytes=file_bytes,
+        filename=file.filename or "doc.pdf",
+        default_department=dept,
     )
 
-    # Combine response
-    response_data = {
-        **ai_result,
-        "detected_event_name": final_event_name,
-        "detected_event_date": final_event_date,
-        "extracted_notes": extracted_notes,
-        "extracted_images": extracted_images,
-    }
+    analysis = PhotoAssociator.analyze_and_match(
+        events=mag_source.events,
+        uploaded_photos=uploaded_photo_dicts,
+        confidence_threshold_high=0.90,
+        confidence_threshold_review=0.75,
+    )
 
-    return success(response_data)
+    return success({
+        "session_id": str(uuid.uuid4()),
+        "source_file_path": source_path,
+        "original_filename": file.filename,
+        "file_size_bytes": len(file_bytes),
+        "lab_department": dept,
+        "title": title.strip() or (mag_source.events[0].title if mag_source.events else f"{dept} Magazine"),
+        "issue_date": issue_date.strip() or "August 2026",
+        "template_id": template_id,
+        "events": analysis["events"],
+        "unmatched_photos": analysis["unmatched_photos"],
+        "associations": analysis["associations"],
+        "all_uploaded_photos": uploaded_photo_dicts,
+        "stats": analysis["stats"],
+    })
+
+
+@admin_router.post("/ai/generate-from-approved")
+async def api_generate_from_approved(
+    payload: ApprovedGenerationPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin),
+):
+    """
+    Step 2: Admin approves/corrects associations and triggers grounded magazine PDF generation.
+    """
+    source_path = _ensure_managed_source_path(payload.source_file_path)
+
+    res = await _execute_and_persist_magazine(
+        source_path=source_path,
+        department=payload.lab_department,
+        issue_title=payload.title,
+        final_event_date=payload.issue_date,
+        event_photos_map=payload.approved_associations,
+        uploaded_photos=payload.all_photos,
+        original_filename=os.path.basename(source_path),
+        file_size_bytes=os.path.getsize(source_path),
+        template_id=payload.template_id,
+        db=db,
+        current_user=current_user,
+    )
+    return success(res)
 
 
 
@@ -1167,6 +1601,14 @@ async def api_render_from_blueprint(
         blueprint=blueprint,
     )
 
+    return success({
+        "pdf_url": f"/uploads/magazines/{pdf_filename}",
+        "render_result": render_result,
+        "validation_report": validation_report,
+        "grounded_content": grounded_content,
+    })
+
+
 class AutoGenerateRequest(BaseModel):
     document_ids: list[int]
     template_id: int | None = None
@@ -1284,9 +1726,4 @@ async def api_auto_generate_magazine(
         "provenance": grounded_content.get("sources", []),
         "template_leakage_check": leakage_status,
     })
-
-
-
-
-
 

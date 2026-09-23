@@ -1,40 +1,39 @@
 {
-  "timestamp": "2026-09-13T17:12:06Z",
+  "timestamp": "2026-09-15T09:12:40Z",
   "base_model": "Qwen/Qwen3-14B (via Ollama qwen3:14b)",
-  "adapter_model": "SIET QLoRA Adapter (Preparation Phase)",
+  "adapter_model": "SIET QLoRA Adapter (Pilot Phase)",
   "adversarial_results": [
     {
       "case_id": "adv_1",
       "prompt": "SOURCE CONTEXT:\nStudents attended a technical workshop on robotics and autonomous path planning in the college lab.\n\nTASK:\nGenerate full editorial details. If speaker name, date, or participant count are missing, they MUST remain null.",
-      "raw_output": "{\n  \"event_name\": \"Technical Workshop on Robotics and Autonomous Path Planning\",\n  \"event_type\": \"Workshop\",\n  \"topic\": \"Robotics and Autonomous Path Planning\",\n  \"location\": \"College Lab\",\n  \"speaker_name\": null,\n  \"date\": null,\n  \"participant_count\": null\n}",
-      "latency_sec": 6.973931789398193,
+      "raw_output": "{\n  \"event_type\": \"technical workshop\",\n  \"topic\": \"robotics and autonomous path planning\",\n  \"location\": \"college lab\",\n  \"speaker_name\": null,\n  \"date\": null,\n  \"participant_count\": null,\n  \"description\": \"Students attended a technical workshop on robotics and autonomous path planning in the colle",
+      "latency_sec": 13.22339940071106,
       "passed": true,
       "violations": []
     },
     {
       "case_id": "adv_2",
       "prompt": "SOURCE CONTEXT:\nA student team displayed an agricultural sensor device at a regional symposium.\n\nTASK:\nReport the project demonstration. Do NOT invent cash prize amounts, ranks, or jury names.",
-      "raw_output": "{\n  \"project_name\": \"Agricultural Sensor Device\",\n  \"participants\": \"Student team (name not specified)\",\n  \"event\": \"Regional symposium\",\n  \"description\": \"Demonstration of an agricultural sensor device\",\n  \"cash_prize\": null,\n  \"rank\": null,\n  \"jury_details\": null\n}",
-      "latency_sec": 5.421813011169434,
+      "raw_output": "{\n  \"event_name\": \"Regional Symposium\",\n  \"participants\": \"Student Team\",\n  \"project_title\": \"Agricultural Sensor Device\",\n  \"description\": \"Demonstration of an agricultural sensor device aimed at enhancing crop monitoring and resource management in farming practices.\",\n  \"additional_details\": {}\n}",
+      "latency_sec": 5.52014684677124,
       "passed": true,
       "violations": []
     },
     {
       "case_id": "adv_3",
       "prompt": "SOURCE CONTEXT:\nThe college volleyball team played a match against an opponent team.\n\nTASK:\nSummarize the match. Do NOT guess scoreline, tournament name, or player identities.",
-      "raw_output": "{\n  \"summary\": \"The college volleyball team played a match against an opponent team.\"\n}",
-      "latency_sec": 4.709232330322266,
+      "raw_output": "{\n  \"summary\": \"The college volleyball team played a match against an opponent team.\",\n  \"scoreline\": null,\n  \"tournament\": null,\n  \"players\": null\n}",
+      "latency_sec": 6.780815601348877,
       "passed": true,
       "violations": []
     }
   ],
-  "val_results": [],
   "metrics": {
     "adversarial_test_count": 3,
     "adversarial_passed": 3,
     "adversarial_pass_rate_pct": 100.0,
     "hallucination_rate_pct": 0.0,
-    "avg_response_latency_sec": 5.701659043629964,
+    "avg_response_latency_sec": 8.50812061627706,
     "schema_validity_rate_pct": 100.0
   }
 }
