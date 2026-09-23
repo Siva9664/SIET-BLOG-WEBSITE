@@ -56,7 +56,7 @@ export default function AdminUsersCRUDPage() {
 
   // Filters
   const [search, setSearch] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"all" | "admin" | "user">("all");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
 
   // Drawer
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -68,7 +68,7 @@ export default function AdminUsersCRUDPage() {
   // Form fields
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"admin" | "user">("admin");
+  const [role, setRole] = useState<string>("admin");
   const [password, setPassword] = useState("");
 
   // Filtered items
@@ -280,7 +280,7 @@ export default function AdminUsersCRUDPage() {
             <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="editor@siet.edu" className={adminInputCls} />
           </AdminField>
           <AdminField label="System Role" required hint="Admin role grants full access to all content management features.">
-            <select value={role} onChange={(e) => setRole(e.target.value as "admin" | "user")} className={adminSelectCls}>
+            <select value={role} onChange={(e) => setRole(e.target.value)} className={adminSelectCls}>
               <option value="admin">Administrator</option>
               <option value="user">Standard User</option>
             </select>

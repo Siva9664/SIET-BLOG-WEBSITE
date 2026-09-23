@@ -4,17 +4,21 @@ import type { User } from "./types";
 export async function getSession(): Promise<User | null> {
   try {
     const cookieStore = await cookies();
+    const token = cookieStore.get("access_token")?.value;
     const cookieHeader = cookieStore.toString();
 
-    if (!cookieHeader || !cookieHeader.includes("access_token=")) {
+    if (!token && (!cookieHeader || !cookieHeader.includes("access_token="))) {
       return null;
     }
+
+    const effectiveToken = token || (cookieHeader.split("access_token=")[1]?.split(";")[0]?.trim());
 
     const BASE = `${process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000"}/api/v1`;
     const res = await fetch(`${BASE}/auth/me`, {
       headers: {
         "Content-Type": "application/json",
-        Cookie: cookieHeader,
+        ...(effectiveToken ? { Authorization: `Bearer ${effectiveToken}` } : {}),
+        Cookie: cookieHeader || (effectiveToken ? `access_token=${effectiveToken}` : ""),
       },
       cache: "no-store",
     });

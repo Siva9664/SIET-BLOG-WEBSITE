@@ -30,7 +30,7 @@ def parse_debug_flag(v: object) -> object:
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=(".env", "backend/.env"), env_file_encoding="utf-8", extra="ignore"
     )
 
     APP_NAME: str = "SIET Portal API"
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     NEWS_ARCHIVE_AFTER_DAYS: int = 90
 
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5433/siet_db"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgrespassword123@localhost:5432/siet_db"
     POSTGRES_POOL_SIZE: int = 10
     POSTGRES_MAX_OVERFLOW: int = 20
 

@@ -19,6 +19,8 @@ import fitz  # PyMuPDF
 from sqlalchemy import select
 
 from app.core.database import async_session_maker
+import app.modules.labs.models  # noqa: F401
+import app.modules.domains.models  # noqa: F401
 from app.modules.auth.models import User
 from app.modules.media.models import Media
 from app.modules.documents.embeddings import embed_text, embed_texts

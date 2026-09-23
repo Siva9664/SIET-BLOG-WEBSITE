@@ -6,6 +6,8 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session_maker
+import app.modules.labs.models  # noqa: F401
+import app.modules.domains.models  # noqa: F401
 from app.modules.auth.models import User
 from app.modules.media.models import Media
 from app.modules.documents.models import SourceDocument, DocumentChunk

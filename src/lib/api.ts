@@ -258,6 +258,7 @@ export const api = {
     if (typeof window !== "undefined") {
       localStorage.setItem("siet_logged_in", "true");
       localStorage.setItem("siet_user_role", res.user.role);
+      document.cookie = `access_token=${res.access_token}; path=/; max-age=604800; SameSite=Lax`;
     }
     currentUserPromise = Promise.resolve(res.user);
     return res.user;
@@ -268,6 +269,7 @@ export const api = {
     if (typeof window !== "undefined") {
       localStorage.removeItem("siet_logged_in");
       localStorage.removeItem("siet_user_role");
+      document.cookie = "access_token=; path=/; max-age=0; SameSite=Lax";
     }
     currentUserPromise = Promise.resolve(null);
     return res;

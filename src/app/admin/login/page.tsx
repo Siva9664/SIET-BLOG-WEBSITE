@@ -26,8 +26,7 @@ export default function AdminLoginPage() {
 
     try {
       await api.login({ email: email.trim(), password });
-      router.refresh();
-      router.push("/admin");
+      window.location.href = "/admin";
     } catch (err: any) {
       console.error("Login failure:", err);
       setError(err?.message ? `Authentication failed: ${err.message}` : "Invalid email or password.");

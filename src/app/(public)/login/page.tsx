@@ -32,10 +32,11 @@ export default function ReaderLoginPage() {
       }
       
       // Check user role to determine routing destination
-      if (user && user.role === "admin") {
-        router.push("/admin");
+      const role = (user?.role || "").toUpperCase();
+      if (["SUPER_ADMIN", "ADMIN", "LAB_ADMIN"].includes(role)) {
+        window.location.href = "/admin";
       } else {
-        router.push("/");
+        window.location.href = "/";
       }
     } catch (err: any) {
       console.error("Login failure:", err);

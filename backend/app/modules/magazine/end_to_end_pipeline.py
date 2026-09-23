@@ -519,6 +519,9 @@ Return ONLY valid JSON matching this schema:
                     clean_page_photos.append({"url": str(img_ref), "filename": os.path.basename(str(img_ref))})
         if not clean_page_photos:
             clean_page_photos = [hero_photo] if (planned_p.page_number == 1 and hero_photo) else feature_photos
+        if not clean_page_photos and combined_photos:
+            idx = (planned_p.page_number - 1) % len(combined_photos)
+            clean_page_photos = [combined_photos[idx]]
         clean_page_photos = [p for p in clean_page_photos if p]
 
         p_plan, p_val = await plan_page_layout(

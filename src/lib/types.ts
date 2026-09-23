@@ -150,7 +150,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "user";
+  role: "SUPER_ADMIN" | "ADMIN" | "LAB_ADMIN" | "EDITOR" | "AUTHOR" | "admin" | "user" | string;
 }
 
 export interface SiteSettings {

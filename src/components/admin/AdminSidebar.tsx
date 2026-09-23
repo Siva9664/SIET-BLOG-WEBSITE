@@ -66,11 +66,10 @@ export function AdminSidebar({ user }: AdminSidebarProps) {
     setLoggingOut(true);
     try {
       await api.logout();
-      router.push("/admin/login");
-      router.refresh();
+      window.location.href = "/admin/login";
     } catch (err) {
       console.error("Logout failed:", err);
-      router.push("/admin/login");
+      window.location.href = "/admin/login";
     } finally {
       setLoggingOut(false);
     }
