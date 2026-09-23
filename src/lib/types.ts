@@ -1,4 +1,4 @@
-export type Domain = { slug: string; name: string; count: number };
+export type Domain = { id?: number; slug: string; name: string; count: number };
 export type Tag = { slug: string; name: string };
 export type Author = {
   id: string;
@@ -150,7 +150,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "user";
+  role: "SUPER_ADMIN" | "ADMIN" | "LAB_ADMIN" | "EDITOR" | "AUTHOR" | "admin" | "user" | string;
 }
 
 export interface SiteSettings {

@@ -258,6 +258,7 @@ export const api = {
     if (typeof window !== "undefined") {
       localStorage.setItem("siet_logged_in", "true");
       localStorage.setItem("siet_user_role", res.user.role);
+      document.cookie = `access_token=${res.access_token}; path=/; max-age=604800; SameSite=Lax`;
     }
     currentUserPromise = Promise.resolve(res.user);
     return res.user;
@@ -268,6 +269,7 @@ export const api = {
     if (typeof window !== "undefined") {
       localStorage.removeItem("siet_logged_in");
       localStorage.removeItem("siet_user_role");
+      document.cookie = "access_token=; path=/; max-age=0; SameSite=Lax";
     }
     currentUserPromise = Promise.resolve(null);
     return res;
@@ -419,6 +421,12 @@ export const api = {
     return req<any>("/admin/magazine/template");
   },
 
+  adminSubmitMagazineForReview: async (id: string) => {
+    return req<any>(`/admin/magazine/${id}/submit-review`, {
+      method: "POST",
+    });
+  },
+
   adminUpdateTemplate: async (data: { name?: string; section_schema: any[]; style_rules: any }) => {
     return req<any>("/admin/magazine/template", {
       method: "PUT",
@@ -487,6 +495,10 @@ export const api = {
     return req<{ message: string; id: string }>(`/admin/magazine/${id}/unpublish`, { method: "POST" });
   },
 
+  adminCompileMagazine: async (id: string) => {
+    return req<{ message: string; id: string; pdf_url?: string; page_count?: number }>(`/admin/magazine/${id}/compile`, { method: "POST" });
+  },
+
   // One-Click AI Auto-Fill for Event Magazine
   adminAutoGenerateFullMagazine: async (b: {
     event_name: string;
@@ -529,12 +541,18 @@ export const api = {
     };
   },
 
+<<<<<<< HEAD
   adminAnalyzeAndMatch: async (formData: FormData) => {
     const res = await req<any>("/admin/magazine/ai/analyze-and-match", {
+=======
+  adminGenerateEndToEndMagazine: async (formData: FormData) => {
+    const res = await req<any>("/admin/magazine/generate/end-to-end", {
+>>>>>>> origin/main
       method: "POST",
       body: formData,
     });
     return (res?.data || res) as {
+<<<<<<< HEAD
       session_id: string;
       source_file_path: string;
       original_filename: string;
@@ -608,6 +626,33 @@ export const api = {
     return (res?.data || res);
   },
 
+=======
+      magazine_id?: number | null;
+      title: string;
+      slug: string;
+      department_or_lab: string;
+      status: string;
+      pdf_url?: string | null;
+      cover_image_url?: string | null;
+      total_pages: number;
+      page_previews: string[];
+      toc_entries: { page_number: number; heading: string }[];
+      stage_telemetry: {
+        stage_number: number;
+        stage_name: string;
+        status: string;
+        message: string;
+        details: Record<string, any>;
+        elapsed_seconds: number;
+      }[];
+      qc_reports: any[];
+      overall_quality_score: number;
+      execution_time_seconds: number;
+      notes: string;
+    };
+  },
+
+>>>>>>> origin/main
   adminDeleteMagazine: async (id: string) => {
     return req<{ message: string }>(`/admin/magazine/${id}`, { method: "DELETE" });
   },

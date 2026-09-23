@@ -223,6 +223,11 @@ def parse_template_file(file_bytes: bytes, filename: str) -> dict:
     Identifies headings as section boundaries and maps each to a section_type.
     """
     from app.modules.magazine.models import DEFAULT_SECTION_SCHEMA, DEFAULT_STYLE_RULES
+    from app.modules.magazine.template_schema import (
+        build_default_template_metadata,
+        normalize_page_type,
+        slugify_identifier,
+    )
 
     ext = os.path.splitext(filename)[1].lower()
     if ext in (".docx", ".doc"):
@@ -274,10 +279,51 @@ def parse_template_file(file_bytes: bytes, filename: str) -> dict:
         style_rules["font_display"] = "Inter"
 
     template_name = os.path.splitext(filename)[0].replace("_", " ").replace("-", " ").title()
+    metadata = build_default_template_metadata(
+        name=template_name or "Uploaded Magazine Template",
+        section_schema=detected_schema,
+        style_rules=style_rules,
+    )
+
+    label_patterns = {
+        "template_id": r"^(?:template\s*id|template_id)\s*:\s*(.+)$",
+        "department": r"^(?:department|dept)\s*:\s*(.+)$",
+        "lab": r"^(?:lab|laboratory)\s*:\s*(.+)$",
+        "section": r"^section\s*:\s*(.+)$",
+        "page_type": r"^(?:page\s*type|page_type|layout\s*type)\s*:\s*(.+)$",
+        "style": r"^style\s*:\s*(.+)$",
+        "supported_content_types": r"^(?:supported\s*content\s*types|content\s*types)\s*:\s*(.+)$",
+        "image_count": r"^(?:image\s*count|photo\s*count|images)\s*:\s*(\d+).*$",
+        "text_capacity": r"^(?:text\s*capacity|max\s*words|word\s*capacity)\s*:\s*(\d+).*$",
+    }
+    for line in lines:
+        cleaned_line = line.strip()
+        for key, pattern in label_patterns.items():
+            match = re.match(pattern, cleaned_line, flags=re.IGNORECASE)
+            if not match:
+                continue
+            value = match.group(1).strip()
+            if key == "template_id":
+                metadata[key] = slugify_identifier(value)
+            elif key == "page_type":
+                metadata[key] = normalize_page_type(value)
+            elif key == "supported_content_types":
+                metadata[key] = [
+                    normalize_page_type(item)
+                    for item in re.split(r"[,/|]", value)
+                    if item.strip()
+                ]
+            elif key == "image_count":
+                metadata[key] = int(value)
+            elif key == "text_capacity":
+                metadata[key]["max_words"] = int(value)
+            else:
+                metadata[key] = value
+
+    style_rules["metadata"] = metadata
 
     return {
         "name": template_name or "Uploaded Magazine Template",
         "section_schema": detected_schema,
         "style_rules": style_rules,
     }
-

@@ -25,7 +25,8 @@ export default async function AdminLayout({
   // Retrieve user session
   const user = await getSession();
 
-  if (!user || !["SUPER_ADMIN", "ADMIN", "admin"].includes(user.role)) {
+  const userRole = (user?.role || "").toUpperCase();
+  if (!user || !["SUPER_ADMIN", "ADMIN", "LAB_ADMIN"].includes(userRole)) {
     redirect("/admin/login");
   }
 

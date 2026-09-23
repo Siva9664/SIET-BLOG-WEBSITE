@@ -22,26 +22,54 @@ Thumbs.db
 postgres.zip
 pg_local/
 logfile
-*.json
+backend/*_backup_*.json
 __pycache__/
+.pytest_cache/
+coverage/
+.coverage
+htmlcov/
+*.pyc
+*.pyo
+*.tmp
+*.temp
 .env
+
+# Build & TypeScript
+tsconfig.tsbuildinfo
+
+# Database dumps
+*.sql
+*.dump
+
+# Root temporary execution directory
+uploads/
 
 patch_admin.py
 
 app_backup_*/
 
-# venv
+# Virtual environments
+.venv/
+backend/.venv/
 backend/venv/
 venv/
-.venv/
 .ml-venv/
 
-# ML weights & caches
-*.safetensors
-*.pt
-*.bin
-*.onnx
+# Model caches and heavyweight ML artifacts
 .cache/
+backend/.cache/
+backend/model-cache/
+backend/model_cache/
+backend/models/**/checkpoint-*/
+*.ckpt
+*.gguf
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.bin
+
+# ML weights & caches
 ml_eval/temp/
 ml_eval/data/
 !ml_eval/benchmark_results.json
@@ -63,9 +91,6 @@ reference-magazines/
 # Allow magazine dataset metadata JSON files
 !ml/datasets/magazine/**/*.json
 !ml/datasets/magazine/*.json
-
-
-
 
 # Large reference publications
 reference-magazines/**/*.pdf

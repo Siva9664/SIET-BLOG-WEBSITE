@@ -30,7 +30,7 @@ def parse_debug_flag(v: object) -> object:
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=(".env", "backend/.env"), env_file_encoding="utf-8", extra="ignore"
     )
 
     APP_NAME: str = "SIET Portal API"
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     NEWS_ARCHIVE_AFTER_DAYS: int = 90
 
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5433/siet_db"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgrespassword123@localhost:5432/siet_db"
     POSTGRES_POOL_SIZE: int = 10
     POSTGRES_MAX_OVERFLOW: int = 20
 
@@ -99,6 +99,20 @@ class Settings(BaseSettings):
     ACCESS_COOKIE_NAME: str = "access_token"
     REFRESH_COOKIE_NAME: str = "refresh_token"
     REQUEST_TIMEOUT: int = 30
+
+    MAGAZINE_LLM_PROVIDER: str = "auto"
+    MAGAZINE_LLM_MODEL: str = ""
+    MAGAZINE_OLLAMA_BASE_URL: str = "http://localhost:11434"
+    MAGAZINE_OLLAMA_MODEL: str = "qwen3:8b"
+    MAGAZINE_GEMINI_MODEL: str = "gemini-1.5-flash"
+    MAGAZINE_OPENAI_MODEL: str = "gpt-3.5-turbo"
+    MAGAZINE_LLM_TIMEOUT_SECONDS: float = 45.0
+    MAGAZINE_LLM_TEMPERATURE: float = 0.2
+    MAGAZINE_VISION_MODEL: str = "google/siglip-base-patch16-224"
+    MAGAZINE_VISION_DEVICE: str = "cpu"
+    MAGAZINE_PHOTO_RELEVANCE_WEIGHT: float = 0.70
+    MAGAZINE_PHOTO_QUALITY_WEIGHT: float = 0.30
+    MAGAZINE_DUPLICATE_SIMILARITY_THRESHOLD: float = 0.96
 
     @model_validator(mode="after")
     def validate_production_config(self) -> "Settings":

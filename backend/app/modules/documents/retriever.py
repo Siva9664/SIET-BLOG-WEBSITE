@@ -12,7 +12,7 @@ from app.modules.documents.provenance import to_provenance
 
 def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
     """Calculates cosine similarity between two float vectors."""
-    if not vec1 or not vec2:
+    if len(vec1) == 0 or len(vec2) == 0:
         return 0.0
     min_len = min(len(vec1), len(vec2))
     dot = sum(vec1[i] * vec2[i] for i in range(min_len))

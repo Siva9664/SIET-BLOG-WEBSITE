@@ -16,6 +16,7 @@ import app.modules.settings.models
 import app.modules.tags.models
 import app.modules.analytics.models
 import app.modules.engagement.models
+import app.modules.labs.models
 
 async def sync_database():
     async with engine.begin() as conn:

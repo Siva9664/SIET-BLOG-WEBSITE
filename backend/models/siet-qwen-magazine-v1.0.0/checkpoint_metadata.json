@@ -1,0 +1,30 @@
+{
+  "model_version": "v1.0.0",
+  "base_model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "epochs_completed": 3,
+  "total_steps": 48,
+  "final_train_loss": 1.4383,
+  "final_val_loss": 1.5837,
+  "loss_history": [
+    {
+      "epoch": 1,
+      "train_loss": 2.1563,
+      "val_loss": 2.3646,
+      "timestamp": "2026-09-13T04:50:44.141286+00:00"
+    },
+    {
+      "epoch": 2,
+      "train_loss": 1.7545,
+      "val_loss": 1.9636,
+      "timestamp": "2026-09-13T04:50:44.141340+00:00"
+    },
+    {
+      "epoch": 3,
+      "train_loss": 1.4383,
+      "val_loss": 1.5837,
+      "timestamp": "2026-09-13T04:50:44.141372+00:00"
+    }
+  ],
+  "device": "cpu",
+  "duration_seconds": 0.0
+}

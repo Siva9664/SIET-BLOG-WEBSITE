@@ -367,6 +367,9 @@ async def serialize_magazine(
         "tocEntries": toc_entries,
         "latestAiNews": top_ai_news,
         "issueDate": item.issue_date.isoformat() if getattr(item, "issue_date", None) else item.created_at.isoformat(),
+        "departmentId": getattr(item, "department_id", None),
+        "departmentName": getattr(item, "department_name", None),
+        "targetPageBudget": getattr(item, "target_page_budget", 4),
         "projectLinks": [
             {"label": link.title, "url": link.url}
             for link in getattr(item, "project_links", [])
@@ -410,7 +413,7 @@ async def get_top_ai_news(db: AsyncSession, limit: int = 5) -> list[dict[str, An
 
 
 def serialize_domain(item: Domain, count: int = 0) -> dict[str, Any]:
-    return {"slug": item.slug, "name": item.name, "count": count}
+    return {"id": item.id, "slug": item.slug, "name": item.name, "count": count}
 
 
 def serialize_tag(item: Tag) -> dict[str, Any]:

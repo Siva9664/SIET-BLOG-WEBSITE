@@ -14,6 +14,7 @@ from app.modules.engagement.router import router as engagement_router
 from app.modules.health.router import router as health_router
 from app.modules.home.router import router as home_router
 from app.modules.internal.router import router as internal_router
+from app.modules.labs.router import router as labs_router
 from app.modules.magazine.router import admin_router as admin_magazine_router, router as magazine_router
 from app.modules.media.router import router as media_router
 from app.modules.news.router import router as news_router
@@ -59,10 +60,6 @@ os.makedirs("uploads/magazines", exist_ok=True)
 os.makedirs(os.path.join(static_dir, "magazine-backgrounds"), exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
-
-from app.shared.middleware.audit import AuditMiddleware
-from app.shared.middleware.auth import AuthenticationMiddleware
-from app.shared.middleware.request_id import RequestIDMiddleware
 from app.shared.middleware.security import SecurityMiddleware
 
 # Custom Middlewares
@@ -82,6 +79,7 @@ app.include_router(internal_router, prefix=settings.API_PREFIX)
 app.include_router(domains_router, prefix=settings.API_PREFIX)
 app.include_router(tags_router, prefix=settings.API_PREFIX)
 app.include_router(media_router, prefix=settings.API_PREFIX)
+app.include_router(labs_router, prefix=settings.API_PREFIX)
 app.include_router(admin_router, prefix=settings.API_PREFIX)
 app.include_router(news_router, prefix=settings.API_PREFIX)
 app.include_router(articles_router, prefix=settings.API_PREFIX)

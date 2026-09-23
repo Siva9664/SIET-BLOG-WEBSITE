@@ -1,0 +1,41 @@
+{
+  "dataset_version": "v1.0.0",
+  "total_examples": 157,
+  "split_counts": {
+    "train": 121,
+    "val": 18,
+    "test": 18
+  },
+  "task_counts": {
+    "raw_to_structured": 40,
+    "raw_to_headline": 35,
+    "raw_to_caption": 35,
+    "section_classification": 35,
+    "template_selection": 6,
+    "photo_selection": 6
+  },
+  "avg_input_words": 118.2,
+  "avg_output_words": 115.9,
+  "max_input_words": 359,
+  "max_output_words": 458,
+  "unique_sources_count": 46,
+  "vocabulary_size": 1042,
+  "top_terms": [
+    "siet",
+    "digest",
+    "special",
+    "event",
+    "student",
+    "engineering",
+    "faculty",
+    "review",
+    "held",
+    "shakthi",
+    "technology",
+    "institute",
+    "confidence",
+    "research",
+    "below"
+  ],
+  "generated_at": "2026-09-13T04:50:31.790620+00:00"
+}
