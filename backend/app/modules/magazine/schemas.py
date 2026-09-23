@@ -417,6 +417,7 @@ class EndToEndMagazineRequest(BaseModel):
     photos: list[dict[str, Any]] = []
     custom_templates: list[dict[str, Any]] = []
     target_page_budget: int = 5
+    template_id: int | str | None = None
     publish_immediately: bool = True
     use_llm: bool = True
     max_qc_attempts: int = 3

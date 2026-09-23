@@ -608,11 +608,22 @@ def get_template_by_id(template_id: str) -> dict[str, Any] | None:
     """Finds a standard template by template_id, slug, or alias."""
     import copy
     clean = str(template_id or "").strip().lower()
+    if not clean:
+        return None
+    # 1. Exact match by template_id, name, or alias
     for tmpl in STANDARD_TEMPLATES:
         meta = tmpl.get("template_metadata") or {}
         tid = str(meta.get("template_id") or "").lower()
         aliases = [str(a).lower() for a in meta.get("aliases", [])]
         name = str(tmpl.get("name") or "").lower()
         if clean in (tid, name) or clean in aliases:
+            return copy.deepcopy(tmpl)
+    # 2. Substring or prefix match
+    for tmpl in STANDARD_TEMPLATES:
+        meta = tmpl.get("template_metadata") or {}
+        tid = str(meta.get("template_id") or "").lower()
+        aliases = [str(a).lower() for a in meta.get("aliases", [])]
+        name = str(tmpl.get("name") or "").lower()
+        if (clean in tid) or (tid in clean) or (clean in name) or any(clean in a or a in clean for a in aliases):
             return copy.deepcopy(tmpl)
     return None

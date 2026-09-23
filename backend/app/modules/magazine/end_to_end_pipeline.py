@@ -54,7 +54,7 @@ from app.modules.magazine.file_parser import (
 )
 from app.modules.magazine.layout_planner import plan_page_layout, resolve_template
 from app.modules.magazine.llm_provider import call_llm_json
-from app.modules.magazine.models import Magazine, MagazinePage, MagazineTOCEntry
+from app.modules.magazine.models import Magazine, MagazinePage, MagazineTOCEntry, MagazineTemplate
 from app.modules.magazine.multi_page_planner import plan_multi_page_magazine
 from app.modules.magazine.photo_ranker import rank_photos_for_article
 from app.modules.magazine.renderer import (
@@ -143,7 +143,7 @@ async def run_end_to_end_magazine_pipeline(
     max_qc_attempts: int = 3,
     lab_id: Optional[int] = None,
     created_by_id: Optional[int] = None,
-    template_id: Optional[int] = None,
+    template_id: Optional[Union[int, str]] = None,
     db: Optional[AsyncSession] = None,
     on_progress: Optional[Callable[[PipelineProgressStage], Awaitable[None]]] = None,
 ) -> EndToEndMagazineResponse:
@@ -382,9 +382,79 @@ Return ONLY valid JSON matching this schema:
         telemetry_list=telemetry,
     )
 
-    available_templates: List[Any] = get_standard_templates()
+    resolved_template: Any = None
+    resolved_db_template_id: Optional[int] = None
+    resolved_meta: Optional[TemplateMetadata] = None
+
+    if template_id is not None:
+        raw_tid_str = str(template_id).strip()
+        # 1. Try DB lookup if db session is available
+        if db is not None:
+            try:
+                if raw_tid_str.isdigit():
+                    int_id = int(raw_tid_str)
+                    stmt = select(MagazineTemplate).where(MagazineTemplate.id == int_id)
+                    res = (await db.execute(stmt)).scalar_one_or_none()
+                    if res:
+                        resolved_template = res
+                        resolved_db_template_id = res.id
+                if not resolved_template:
+                    stmt = select(MagazineTemplate).where(
+                        (MagazineTemplate.name.ilike(raw_tid_str)) |
+                        (MagazineTemplate.template_family.ilike(raw_tid_str))
+                    )
+                    res = (await db.execute(stmt)).scalars().first()
+                    if res:
+                        resolved_template = res
+                        resolved_db_template_id = res.id
+            except Exception as e:
+                logger.warning(f"[Pipeline] DB template resolution check error: {e}")
+
+        # 2. Check standard template library via get_template_by_id
+        if not resolved_template:
+            resolved_template = get_template_by_id(raw_tid_str)
+
+        # 3. Check custom uploaded templates
+        if not resolved_template:
+            for cpt in parsed_custom_templates:
+                c_meta = cpt.get("template_metadata") or {}
+                if (
+                    str(c_meta.get("template_id", "")).lower() == raw_tid_str.lower()
+                    or str(cpt.get("name", "")).lower() == raw_tid_str.lower()
+                ):
+                    resolved_template = cpt
+                    break
+
+        # 4. Check SIET_DEFAULT_V1 alias
+        if not resolved_template and raw_tid_str.upper() in ("SIET_DEFAULT_V1", "DEFAULT_V1"):
+            resolved_template = {
+                "name": "SIET Standard Issue Template (V1)",
+                "template_metadata": {
+                    "template_id": "SIET_DEFAULT_V1",
+                    "name": "SIET Standard Issue Template (V1)",
+                    "page_type": "article",
+                    "supported_content_types": ["cover", "project_showcase", "achievement", "event", "gallery", "closing_page", "article"],
+                    "version": 1,
+                }
+            }
+
+        if resolved_template:
+            try:
+                resolved_meta = normalize_template_metadata(resolved_template)
+                logger.info(f"[Pipeline] Successfully resolved chosen template: {resolved_meta.template_id} ('{resolved_meta.name}')")
+            except Exception as e:
+                logger.warning(f"[Pipeline] Failed to normalize resolved template metadata: {e}")
+
+    available_templates: List[Any] = []
+    if resolved_template:
+        available_templates.append(resolved_template)
+    for std_t in get_standard_templates():
+        if resolved_meta and std_t.get("template_metadata", {}).get("template_id") == resolved_meta.template_id:
+            continue
+        available_templates.append(std_t)
     for cpt in parsed_custom_templates:
-        available_templates.append(cpt)
+        if resolved_template != cpt:
+            available_templates.append(cpt)
 
     combined_photos = list(real_photos)
     for ext_img in extracted_images:
@@ -398,31 +468,48 @@ Return ONLY valid JSON matching this schema:
     sections_to_match = ["cover", "project_showcase", "achievement", "event", "gallery"]
 
     for sec in sections_to_match:
-        try:
-            rec = await select_template(
-                content=structured_content.get("writeup_text", extracted_text),
-                department_or_lab=department_or_lab,
-                section=sec,
-                available_images=combined_photos,
-                candidate_templates=available_templates,
-                db=db,
-                use_llm=use_llm,
-            )
-            selected_templates[sec] = rec
-        except Exception as e:
-            logger.warning(f"[Pipeline] Template selection fallback for {sec}: {e}")
+        # If the admin-chosen template directly matches this section, force/apply it
+        if resolved_meta and (
+            resolved_meta.page_type == sec
+            or resolved_meta.supports_content_type(sec)
+            or (resolved_meta.template_id == "SIET_DEFAULT_V1")
+        ):
             selected_templates[sec] = {
-                "template_id": f"STD_{sec.upper()}_01",
+                "template_id": resolved_meta.template_id,
                 "page_type": sec,
-                "confidence": 0.85,
-                "reason": "Standard library default matching section type.",
+                "confidence": 1.0,
+                "reason": f"Explicitly chosen by admin: {resolved_meta.name}",
             }
+        else:
+            try:
+                rec = await select_template(
+                    content=structured_content.get("writeup_text", extracted_text),
+                    department_or_lab=department_or_lab,
+                    section=sec,
+                    available_images=combined_photos,
+                    candidate_templates=available_templates,
+                    db=db,
+                    use_llm=use_llm,
+                )
+                selected_templates[sec] = rec
+            except Exception as e:
+                logger.warning(f"[Pipeline] Template selection fallback for {sec}: {e}")
+                selected_templates[sec] = {
+                    "template_id": f"STD_{sec.upper()}_01",
+                    "page_type": sec,
+                    "confidence": 0.85,
+                    "reason": "Standard library default matching section type.",
+                }
 
     s4_elapsed = time.time() - s4_start
     await _emit_progress(
         on_progress, 4, "Selecting templates", "completed",
-        f"Selected optimal templates for {len(selected_templates)} magazine sections.",
-        details={"selected_templates": selected_templates},
+        f"Selected optimal templates for {len(selected_templates)} magazine sections (Chosen template: {resolved_meta.name if resolved_meta else 'Auto-matched'}).",
+        details={
+            "selected_templates": selected_templates,
+            "chosen_template_id": resolved_meta.template_id if resolved_meta else None,
+            "chosen_template_name": resolved_meta.name if resolved_meta else None,
+        },
         elapsed_seconds=s4_elapsed,
         telemetry_list=telemetry,
     )
@@ -477,11 +564,13 @@ Return ONLY valid JSON matching this schema:
         telemetry_list=telemetry,
     )
 
+    t_constraints = {"forced_template_id": resolved_meta.template_id} if resolved_meta else None
     multi_page_plan = plan_multi_page_magazine(
         structured_content=structured_content,
         department_or_lab=department_or_lab,
         available_images=combined_photos,
         available_templates=available_templates,
+        template_constraints=t_constraints,
         max_pages=target_page_budget,
         start_page_number=1,
     )
@@ -587,7 +676,18 @@ Return ONLY valid JSON matching this schema:
 
     for p_idx, plan in enumerate(page_plans):
         page_num = p_idx + 1
-        t_meta = get_template_by_id(plan.template_id) or available_templates[0]
+        t_meta = get_template_by_id(plan.template_id)
+        if not t_meta:
+            for cand in available_templates:
+                try:
+                    c_norm = normalize_template_metadata(cand)
+                    if c_norm.template_id == plan.template_id or str(getattr(cand, "id", None)) == str(plan.template_id):
+                        t_meta = cand
+                        break
+                except Exception:
+                    pass
+        if not t_meta:
+            t_meta = available_templates[0]
 
         rec_res = render_and_validate_page_with_recovery(
             doc=final_doc,
@@ -688,7 +788,7 @@ Return ONLY valid JSON matching this schema:
                 lab_id=lab_id,
                 created_by_id=created_by_id,
                 updated_by_id=created_by_id,
-                template_id=template_id,
+                template_id=resolved_db_template_id or (template_id if isinstance(template_id, int) else None),
                 publication_year=datetime.now(timezone.utc).year,
                 status="published" if publish_immediately else "draft",
                 pdf_url=public_pdf_url,

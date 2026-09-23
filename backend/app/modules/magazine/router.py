@@ -1853,7 +1853,7 @@ async def api_generate_end_to_end_magazine(
     event_date: Optional[str] = Form(None),
     department_or_lab: Optional[str] = Form("AI & Data Science Lab"),
     lab_id: Optional[int] = Form(None),
-    template_id: Optional[int] = Form(None),
+    template_id: Optional[Union[int, str]] = Form(None),
     raw_notes: Optional[str] = Form(None),
     target_page_budget: int = Form(5),
     publish_immediately: bool = Form(True),
@@ -1955,6 +1955,7 @@ async def api_generate_end_to_end_magazine_json(
         publish_immediately=payload.publish_immediately,
         use_llm=payload.use_llm,
         max_qc_attempts=payload.max_qc_attempts,
+        template_id=payload.template_id,
         db=db,
     )
     return success(result.model_dump())

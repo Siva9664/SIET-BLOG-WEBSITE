@@ -421,6 +421,12 @@ export const api = {
     return req<any>("/admin/magazine/template");
   },
 
+  adminSubmitMagazineForReview: async (id: string) => {
+    return req<any>(`/admin/magazine/${id}/submit-review`, {
+      method: "POST",
+    });
+  },
+
   adminUpdateTemplate: async (data: { name?: string; section_schema: any[]; style_rules: any }) => {
     return req<any>("/admin/magazine/template", {
       method: "PUT",

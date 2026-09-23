@@ -114,6 +114,8 @@ export default function AdminMagazinePage() {
   const [e2ePhotos, setE2ePhotos] = useState<File[]>([]);
   const [e2eTemplates, setE2eTemplates] = useState<File[]>([]);
   const [e2eDept, setE2eDept] = useState("AI Lab");
+  const [e2eTemplateId, setE2eTemplateId] = useState("");
+  const [activeTemplateId, setActiveTemplateId] = useState<number | null>(null);
   const [e2eEventName, setE2eEventName] = useState("");
   const [e2eEventDate, setE2eEventDate] = useState(new Date().toISOString().split("T")[0]);
   const [e2eNotes, setE2eNotes] = useState("");
@@ -123,6 +125,7 @@ export default function AdminMagazinePage() {
   const [e2eTelemetry, setE2eTelemetry] = useState<any[]>([]);
   const [e2eResult, setE2eResult] = useState<any | null>(null);
   const [e2eError, setE2eError] = useState<string | null>(null);
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
 
   const PIPELINE_STAGES = [
     { num: 1, name: "Reading documents", desc: "Parsing DOCX/PDF & template files" },
@@ -160,6 +163,7 @@ export default function AdminMagazinePage() {
       formData.append("department_or_lab", e2eDept);
       if (e2eNotes.trim()) formData.append("raw_notes", e2eNotes.trim());
       formData.append("target_page_budget", String(e2eBudget));
+      if (e2eTemplateId.trim()) formData.append("template_id", e2eTemplateId.trim());
       formData.append("publish_immediately", "true");
       formData.append("use_llm", "true");
 
@@ -183,6 +187,7 @@ export default function AdminMagazinePage() {
     try {
       const res = await api.adminGetTemplate();
       const data = res.data || res;
+      if (data.id) setActiveTemplateId(data.id);
       setTemplateName(data.name || "SIET Standard Issue Template");
       setSectionSchema(Array.isArray(data.section_schema) ? data.section_schema : []);
       setStyleRules(data.style_rules || {
@@ -206,6 +211,19 @@ export default function AdminMagazinePage() {
     setTemplateSuccess(null);
     setTemplateError(null);
     setIsTemplateModalOpen(true);
+  };
+
+  const handleSubmitReview = async (id: string) => {
+    setSubmittingId(id);
+    try {
+      await api.adminSubmitMagazineForReview(id);
+      await loadIssues();
+    } catch (err: any) {
+      console.error("Failed to submit review:", err);
+      alert(err?.message || "Failed to submit magazine for review.");
+    } finally {
+      setSubmittingId(null);
+    }
   };
 
   const handleSaveTemplate = async () => {
@@ -747,6 +765,11 @@ export default function AdminMagazinePage() {
                           <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
                           Published
                         </span>
+                      ) : issue.status === "submitted" ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] text-indigo-700 bg-indigo-50 px-2 py-0.5 border border-indigo-200 uppercase tracking-wider font-semibold">
+                          <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full" />
+                          Pending Review
+                        </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 border border-amber-200 uppercase tracking-wider font-semibold">
                           Draft
@@ -786,6 +809,16 @@ export default function AdminMagazinePage() {
                   </td>
 
                   <td className="p-4 text-right space-x-2">
+                    {issue.status === "draft" && (
+                      <button
+                        onClick={() => handleSubmitReview(issue.id)}
+                        disabled={submittingId === issue.id}
+                        className="font-util text-[10px] uppercase tracking-wider px-2 py-1 border border-blue-400 text-blue-700 hover:bg-blue-50 cursor-pointer disabled:opacity-50"
+                        title="Submit this draft issue for Super Admin approval"
+                      >
+                        {submittingId === issue.id ? "Submitting..." : "📤 Submit Review"}
+                      </button>
+                    )}
                     <button
                       onClick={() => handleCompileMagazine(issue.id)}
                       disabled={compilingId === issue.id}
@@ -1578,11 +1611,11 @@ export default function AdminMagazinePage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                   {/* Department / Lab Selector */}
                   <div className="space-y-1">
                     <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider font-semibold">
-                      Department / Lab Template Group
+                      Department / Lab Group
                     </label>
                     <select
                       value={e2eDept}
@@ -1599,6 +1632,30 @@ export default function AdminMagazinePage() {
                       <option value="Faculty achievements">Faculty Achievements</option>
                       <option value="Events">Events &amp; Symposia</option>
                       <option value="Projects">Projects &amp; Prototypes</option>
+                    </select>
+                  </div>
+
+                  {/* Template Selection */}
+                  <div className="space-y-1">
+                    <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider font-semibold">
+                      Chosen Template
+                    </label>
+                    <select
+                      value={e2eTemplateId}
+                      onChange={(e) => setE2eTemplateId(e.target.value)}
+                      className="w-full border border-line bg-paper px-3 py-2 outline-none focus:border-ink font-medium"
+                    >
+                      <option value="">✨ Auto-Match (Intelligent Selection)</option>
+                      {activeTemplateId && (
+                        <option value={String(activeTemplateId)}>🎨 Active DB Template ({templateName})</option>
+                      )}
+                      <option value="SIET_DEFAULT_V1">🏛️ SIET Standard Institutional (V1)</option>
+                      <option value="ai_lab_project_showcase">🤖 AI Lab Project Showcase</option>
+                      <option value="iot_lab_smart_systems">📡 IoT Lab Smart Systems</option>
+                      <option value="robotics_lab_autonomous_systems">🦾 Robotics Lab Autonomous Systems</option>
+                      <option value="cyber_security_threat_intel">🛡️ Cyber Security Threat Intel</option>
+                      <option value="student_achievement_grid">🏆 Student Achievements Honor Roll</option>
+                      <option value="ai_lab_project_split">⚡ AI Lab Prototype Split Showcase</option>
                     </select>
                   </div>
 
@@ -1619,7 +1676,7 @@ export default function AdminMagazinePage() {
                   {/* Target Page Budget */}
                   <div className="space-y-1">
                     <label className="block font-util text-eyebrow text-ink-soft uppercase tracking-wider font-semibold">
-                      Target Page Budget ({e2eBudget} Pages)
+                      Page Budget ({e2eBudget} Pages)
                     </label>
                     <input
                       type="range"

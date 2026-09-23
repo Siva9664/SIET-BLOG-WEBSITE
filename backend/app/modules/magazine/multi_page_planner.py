@@ -164,11 +164,13 @@ def _find_candidate_templates_for_section(
     department_or_lab: Optional[str],
     available_templates: List[TemplateMetadata],
     available_image_count: int,
+    forced_template_id: Optional[str] = None,
 ) -> List[Tuple[TemplateMetadata, float]]:
     """
     Finds and ranks candidate templates for a section.
     Scoring factors:
       - Page type compatibility (+100)
+      - Explicit admin forced/chosen template match (+500)
       - Exact laboratory affinity match (+80)
       - Department match (+40)
       - Image requirement feasibility (+15 if images available; -30 if strict image shortage)
@@ -179,6 +181,14 @@ def _find_candidate_templates_for_section(
 
     for tmpl in available_templates:
         score = 0.0
+
+        # Check explicit forced template match
+        if forced_template_id:
+            clean_forced = str(forced_template_id).strip().lower()
+            tid = str(tmpl.template_id or "").strip().lower()
+            tname = str(tmpl.name or "").strip().lower()
+            if clean_forced in (tid, tname) or clean_forced == tid:
+                score += 500.0
 
         # Check page type match
         if tmpl.page_type == norm_section:
@@ -370,11 +380,13 @@ def plan_multi_page_magazine(
             avail_imgs = max(0, len(image_pool) - image_pool_idx)
 
             # Find matching candidate templates
+            forced_tid = (template_constraints or {}).get("forced_template_id")
             candidate_pairs = _find_candidate_templates_for_section(
                 section_page_type=sec_name,
                 department_or_lab=department_or_lab,
                 available_templates=template_pool,
                 available_image_count=avail_imgs,
+                forced_template_id=forced_tid,
             )
 
             # Fallback if no specific templates found

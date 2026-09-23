@@ -296,3 +296,97 @@ async def test_end_to_end_api_endpoints(temp_assets):
     finally:
         app.dependency_overrides.pop(require_lab_admin, None)
 
+
+@pytest.mark.asyncio
+async def test_end_to_end_pipeline_chosen_template_applied(temp_assets):
+    """
+    Verifies that when an explicit template_id is supplied by the admin,
+    Stage 4 resolves and forces it for matching sections, Stage 6 multi-page
+    planning prioritizes it, and the chosen template is recorded in telemetry.
+    """
+    chosen_tid = "ai_lab_project_showcase"
+    result = await run_end_to_end_magazine_pipeline(
+        raw_notes="Autonomous AI Drone Navigation and Multi-Agent Swarm Intelligence.",
+        department_or_lab="AI Lab",
+        template_id=chosen_tid,
+        target_page_budget=2,
+        use_llm=False,
+    )
+
+    assert result is not None
+    assert result.status == "published"
+    assert result.total_pages >= 2
+
+    # Check Stage 4 telemetry
+    stage_4 = next((s for s in result.stage_telemetry if s.stage_number == 4), None)
+    assert stage_4 is not None
+    assert stage_4.details is not None
+    assert stage_4.details.get("chosen_template_id") == chosen_tid
+
+    # Check that project_showcase section used the chosen template
+    selected_tmpls = stage_4.details.get("selected_templates", {})
+    assert "project_showcase" in selected_tmpls
+    assert selected_tmpls["project_showcase"]["template_id"] == chosen_tid
+    assert selected_tmpls["project_showcase"]["confidence"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_api_endpoints_chosen_template(temp_assets):
+    """
+    Verifies that POST /admin/magazine/generate/end-to-end multipart form data
+    and POST /admin/magazine/generate/end-to-end-json properly accept and enforce template_id.
+    """
+    from app.modules.auth.models import User, UserRole
+    from app.shared.auth.dependencies import require_lab_admin
+
+    admin_user = User(
+        id=1,
+        name="Super Admin",
+        email="admin@siet.in",
+        role=UserRole.SUPER_ADMIN.value,
+        is_active=True,
+        is_verified=True,
+    )
+    app.dependency_overrides[require_lab_admin] = lambda: admin_user
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. JSON endpoint with template_id
+            json_payload = {
+                "department_or_lab": "AI Lab",
+                "event_name": "AI Swarm Symposium",
+                "raw_notes": "Reinforcement learning for quadcopter formation flying.",
+                "target_page_budget": 2,
+                "template_id": "ai_lab_project_showcase",
+                "publish_immediately": True,
+                "use_llm": False,
+            }
+            res = await client.post("/api/v1/admin/magazine/generate/end-to-end-json", json=json_payload)
+            assert res.status_code == 200, res.text
+            data = res.json()["data"]
+            stage_4 = next((s for s in data["stage_telemetry"] if s["stage_number"] == 4), None)
+            assert stage_4 is not None
+            assert stage_4["details"]["chosen_template_id"] == "ai_lab_project_showcase"
+
+            # 2. Multipart endpoint with template_id form field
+            files = {
+                "file": ("notes.txt", b"Robotics prototype demonstration notes.", "text/plain"),
+            }
+            form_data = {
+                "department_or_lab": "Robotics Lab",
+                "event_name": "Robotics Autonomous Rover",
+                "template_id": "robotics_lab_autonomous",
+                "target_page_budget": "2",
+                "use_llm": "false",
+            }
+            res_mp = await client.post("/api/v1/admin/magazine/generate/end-to-end", data=form_data, files=files)
+            assert res_mp.status_code == 200, res_mp.text
+            data_mp = res_mp.json()["data"]
+            stage_4_mp = next((s for s in data_mp["stage_telemetry"] if s["stage_number"] == 4), None)
+            assert stage_4_mp is not None
+            assert stage_4_mp["details"]["chosen_template_id"] == "robotics_lab_autonomous_systems"
+    finally:
+        app.dependency_overrides.pop(require_lab_admin, None)
+
+
