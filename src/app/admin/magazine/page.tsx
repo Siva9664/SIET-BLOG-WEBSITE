@@ -770,7 +770,6 @@ export default function AdminMagazinePage() {
                           <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
                           Published
                         </span>
-<<<<<<< HEAD
                       ) : issue.status === "approved" ? (
                         <span className="inline-flex items-center gap-1.5 text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 border border-blue-200 uppercase tracking-wider font-semibold">
                           <span className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
@@ -781,16 +780,15 @@ export default function AdminMagazinePage() {
                           <span className="w-1.5 h-1.5 bg-violet-500 rounded-full" />
                           Review Required
                         </span>
-                      ) : issue.status === "failed" ? (
-                        <span className="inline-flex items-center gap-1.5 text-[10px] text-red-700 bg-red-50 px-2 py-0.5 border border-red-200 uppercase tracking-wider font-semibold">
-                          <span className="w-1.5 h-1.5 bg-red-500 rounded-full" />
-                          Failed
-=======
                       ) : issue.status === "submitted" ? (
                         <span className="inline-flex items-center gap-1.5 text-[10px] text-indigo-700 bg-indigo-50 px-2 py-0.5 border border-indigo-200 uppercase tracking-wider font-semibold">
                           <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full" />
                           Pending Review
->>>>>>> origin/main
+                        </span>
+                      ) : issue.status === "failed" ? (
+                        <span className="inline-flex items-center gap-1.5 text-[10px] text-red-700 bg-red-50 px-2 py-0.5 border border-red-200 uppercase tracking-wider font-semibold">
+                          <span className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                          Failed
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5 text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 border border-amber-200 uppercase tracking-wider font-semibold">
@@ -1567,7 +1565,6 @@ export default function AdminMagazinePage() {
         </div>
       )}
 
-<<<<<<< HEAD
       {/* PRODUCTION EVENT PHOTOS -> AI MATCHING -> MAGAZINE GENERATION WIZARD */}
       <EventPhotoMagazineWizard
         isOpen={isEventPhotoWizardOpen}
@@ -1576,7 +1573,7 @@ export default function AdminMagazinePage() {
           loadIssues();
         }}
       />
-=======
+
       {/* END-TO-END AI MAGAZINE GENERATION PIPELINE MODAL */}
       {isEndToEndOpen && (
         <div className="fixed inset-0 z-50 bg-paper/80 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
@@ -1889,7 +1886,6 @@ export default function AdminMagazinePage() {
           </div>
         </div>
       )}
->>>>>>> origin/main
     </div>
   );
 }

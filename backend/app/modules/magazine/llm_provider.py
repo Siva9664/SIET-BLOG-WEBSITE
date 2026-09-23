@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Literal, Optional, Type
 
 import httpx
 
+from app.core.config import settings
 from app.core.logging import logger
 
 LLMResponseFormat = Literal["text", "json"]
@@ -104,7 +105,8 @@ def get_llm_config(
             or _env("OLLAMA_MODEL")
             or (generic_model if generic_model and not _is_gemini_model(generic_model) else "")
             or (model_name if model_name and not _is_gemini_model(model_name) else "")
-            or "qwen3:8b"
+            or getattr(settings, "MAGAZINE_OLLAMA_MODEL", "")
+            or "qwen3:4b"
         )
         base_url = (
             _env("MAGAZINE_OLLAMA_BASE_URL")

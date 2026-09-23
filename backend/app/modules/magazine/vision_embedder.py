@@ -126,6 +126,10 @@ class SiglipVisionEmbedder(BaseVisionEmbedder):
         inputs = self._processor(images=pil_images, return_tensors="pt").to(self.device)
         with torch.no_grad():
             image_features = self._model.get_image_features(**inputs)
+            if hasattr(image_features, "pooler_output") and image_features.pooler_output is not None:
+                image_features = image_features.pooler_output
+            elif hasattr(image_features, "last_hidden_state"):
+                image_features = image_features.last_hidden_state[:, 0]
             # L2 normalize
             image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
 
@@ -149,9 +153,19 @@ class SiglipVisionEmbedder(BaseVisionEmbedder):
         safe_texts = [t.strip() if t.strip() else "photo" for t in texts]
         import torch
 
-        inputs = self._processor(text=safe_texts, padding="max_length", return_tensors="pt").to(self.device)
+        inputs = self._processor(
+            text=safe_texts,
+            padding="max_length",
+            truncation=True,
+            max_length=64,
+            return_tensors="pt",
+        ).to(self.device)
         with torch.no_grad():
             text_features = self._model.get_text_features(**inputs)
+            if hasattr(text_features, "pooler_output") and text_features.pooler_output is not None:
+                text_features = text_features.pooler_output
+            elif hasattr(text_features, "last_hidden_state"):
+                text_features = text_features.last_hidden_state[:, 0]
             # L2 normalize
             text_features = text_features / text_features.norm(p=2, dim=-1, keepdim=True)
 

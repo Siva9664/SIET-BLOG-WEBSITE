@@ -23,11 +23,7 @@ import os
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
-<<<<<<< HEAD
-from typing import Any, Dict, List, Optional
-=======
 from typing import Any, Dict, List, Optional, Union
->>>>>>> origin/main
 
 from pydantic import BaseModel
 from fastapi import (
@@ -1307,11 +1303,7 @@ async def publish_magazine(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_super_admin),
 ):
-<<<<<<< HEAD
-    """Publish an approval-cleared magazine and stamp its publication time."""
-=======
-    """Publish a draft magazine. SUPER_ADMIN approval/publish action."""
->>>>>>> origin/main
+    """Publish an approval-cleared magazine and stamp its publication time. Super Admin action."""
     mag = await db.get(Magazine, magazine_id)
     if not mag:
         raise NotFoundException("Magazine not found.")
@@ -1342,7 +1334,6 @@ async def publish_magazine(
     return {"message": "Magazine published.", "id": str(mag.id), "isFeatured": mag.is_featured}
 
 
-<<<<<<< HEAD
 @admin_router.post("/{magazine_id}/approve")
 async def approve_magazine(
     magazine_id: int,
@@ -1368,7 +1359,8 @@ async def approve_magazine(
     mag.status = "approved"
     await db.commit()
     return {"message": "Magazine approved for publication.", "id": str(mag.id), "status": mag.status}
-=======
+
+
 @admin_router.post("/{magazine_id}/submit-review")
 async def submit_magazine_for_review(
     magazine_id: int,
@@ -1423,7 +1415,6 @@ async def api_compile_magazine(
     if res.get("status") == "error":
         raise HTTPException(status_code=500, detail=res.get("message", "Compilation failed"))
     return success(res)
->>>>>>> origin/main
 
 
 @admin_router.post("/{magazine_id}/unpublish")
@@ -1432,11 +1423,7 @@ async def unpublish_magazine(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_super_admin),
 ):
-<<<<<<< HEAD
-    """Unpublish a magazine while retaining its completed approval."""
-=======
-    """Unpublish a magazine back to draft (Super Admin only)."""
->>>>>>> origin/main
+    """Unpublish a magazine while retaining its completed approval (Super Admin only)."""
     mag = await db.get(Magazine, magazine_id)
     if not mag:
         raise NotFoundException("Magazine not found.")
@@ -2297,8 +2284,7 @@ async def api_auto_generate_magazine(
         "template_leakage_check": leakage_status,
     })
 
-<<<<<<< HEAD
-=======
+
 
 @admin_router.post("/generate/end-to-end")
 async def api_generate_end_to_end_magazine(
@@ -2415,4 +2401,3 @@ async def api_generate_end_to_end_magazine_json(
         db=db,
     )
     return success(result.model_dump())
->>>>>>> origin/main

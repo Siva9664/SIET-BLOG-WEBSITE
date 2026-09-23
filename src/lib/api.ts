@@ -541,18 +541,12 @@ export const api = {
     };
   },
 
-<<<<<<< HEAD
   adminAnalyzeAndMatch: async (formData: FormData) => {
     const res = await req<any>("/admin/magazine/ai/analyze-and-match", {
-=======
-  adminGenerateEndToEndMagazine: async (formData: FormData) => {
-    const res = await req<any>("/admin/magazine/generate/end-to-end", {
->>>>>>> origin/main
       method: "POST",
       body: formData,
     });
     return (res?.data || res) as {
-<<<<<<< HEAD
       session_id: string;
       source_file_path: string;
       original_filename: string;
@@ -626,7 +620,12 @@ export const api = {
     return (res?.data || res);
   },
 
-=======
+  adminGenerateEndToEndMagazine: async (formData: FormData) => {
+    const res = await req<any>("/admin/magazine/generate/end-to-end", {
+      method: "POST",
+      body: formData,
+    });
+    return (res?.data || res) as {
       magazine_id?: number | null;
       title: string;
       slug: string;
@@ -651,8 +650,6 @@ export const api = {
       notes: string;
     };
   },
-
->>>>>>> origin/main
   adminDeleteMagazine: async (id: string) => {
     return req<{ message: string }>(`/admin/magazine/${id}`, { method: "DELETE" });
   },

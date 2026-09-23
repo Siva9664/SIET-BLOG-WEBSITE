@@ -1573,7 +1573,6 @@ def render_magazine_pdf_from_blueprint(
     content: Dict[str, Any],
     output_pdf_path: str,
 ) -> Dict[str, Any]:
-<<<<<<< HEAD
     """
     Phase 5 Deterministic PDF Renderer.
     Renders RAG-grounded magazine content directly into blueprint coordinate region bounding boxes
@@ -1698,8 +1697,3 @@ def render_magazine_pdf_from_blueprint(
         "total_pages": len(bp_pages),
         "page_previews": page_preview_paths,
     }
-=======
-    """Backwards-compatible blueprint coordinate renderer."""
-    merged = {**content, **blueprint}
-    return render_editorial_magazine_pdf(merged, output_pdf_path)
->>>>>>> origin/main
