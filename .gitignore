@@ -94,3 +94,8 @@ reference-magazines/
 
 # Large reference publications
 reference-magazines/**/*.pdf
+venv/
+.venv/
+backend/venv/
+backend/.venv/
+backend/output/
