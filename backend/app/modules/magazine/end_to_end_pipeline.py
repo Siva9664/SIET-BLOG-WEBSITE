@@ -458,20 +458,18 @@ Return ONLY valid JSON matching this schema:
                     "team": f"{department_or_lab} Cohort",
                 }
             ],
-            "achievements": [
-                {
-                    "title": "Excellence in Applied Research",
-                    "description": f"Recognized during {active_event_name} for exemplary technical implementation.",
-                    "recipient": "Department Research Team",
-                }
-            ],
-            "events": [
-                {
-                    "title": f"{active_event_name} Opening & Demonstration Session",
-                    "description": f"Keynote proceedings, prototype evaluation, and peer review in {department_or_lab}.",
-                    "date": active_event_date,
-                }
-            ],
+            "achievements": [],  # never invent awards; leave empty when the source has none
+            "events": (
+                [
+                    {
+                        "title": active_event_name,
+                        "description": (paragraphs[1][:240] if len(paragraphs) > 1 else ""),
+                        "date": active_event_date,
+                    }
+                ]
+                if active_event_name and active_event_date
+                else []
+            ),
             "captions": [
                 f"Faculty and students demonstrating prototypes during {active_event_name}.",
                 f"Interactive project evaluation session at {department_or_lab}.",
