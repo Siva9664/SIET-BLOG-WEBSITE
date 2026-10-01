@@ -1,0 +1,18 @@
+# AI / ML dependencies (SigLIP photo matching, embeddings/RAG, Qwen LoRA inference + QLoRA training)
+# Install torch FIRST from the PyTorch index:
+#   GPU (CUDA 12.8): pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#   CPU only:        pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# Then: pip install -r requirements-ml.txt
+
+torch>=2.4.0
+torchvision>=0.19.0
+transformers>=4.45.0
+sentence-transformers>=3.0.0
+sentencepiece>=0.2.0
+protobuf>=4.25.0
+safetensors>=0.4.3
+accelerate>=0.34.0
+peft>=0.12.0
+datasets>=2.20.0
+PyYAML>=6.0
+bitsandbytes>=0.43.0; platform_system != "Darwin"

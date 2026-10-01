@@ -39,7 +39,12 @@ SIET-BLOG-WEBSITE/
 cd backend
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
+# If you have an NVIDIA GPU, install the CUDA version of PyTorch:
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+# otherwise use CPU:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements-ml.txt
 ```
 
 ### 2. Configure Environment Variables

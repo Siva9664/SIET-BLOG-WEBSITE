@@ -21,7 +21,8 @@ from app.modules.tags.models import Tag
 from app.modules.media.models import Media
 from app.modules.news.models import News
 from app.modules.articles.models import Article
-from app.modules.magazine.models import Magazine, MagazineAchievement, MagazineProjectLink
+import app.modules.labs.models
+import app.modules.magazine.models
 from app.modules.engagement.models import Like, Bookmark
 from app.modules.analytics.models import PageView, TrendingMetric
 from app.modules.documents.models import SourceDocument, DocumentChunk

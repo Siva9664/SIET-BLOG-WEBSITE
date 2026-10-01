@@ -8,9 +8,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import select
 from app.core.database import async_session_maker
 from app.core.security import hash_password
-import app.modules.labs.models  # noqa: F401
-import app.modules.magazine.models  # noqa: F401
+from app.modules.labs.models import Lab
+from app.modules.magazine.models import MagazineTemplate
 from app.modules.auth.models import User
+import app.modules.domains.models
+import app.modules.media.models
+import app.modules.articles.models
 from app.shared.constants import Roles
 
 async def seed_data():
@@ -31,10 +34,31 @@ async def seed_data():
                 email_verified=True
             )
             session.add(admin_user)
-            await session.commit()
+            await session.flush()
             print("Default admin user seeded successfully (admin@siet.in).")
         else:
             print("Admin user already exists. Skipping.")
+
+        # Seed Default Magazine Template
+        stmt_tmpl = select(MagazineTemplate).where(MagazineTemplate.name == 'SIET Default V1 Template')
+        result_tmpl = await session.execute(stmt_tmpl)
+        if not result_tmpl.scalars().first():
+            from app.modules.magazine.models import MagazineType
+            default_template = MagazineTemplate(
+                name='SIET Default V1 Template',
+                template_family='academic_digest',
+                is_active=True,
+                is_global=True,
+                section_schema=[],
+                style_rules={"colors": {"primary": "#0f172a", "accent": "#3b82f6"}, "fonts": {"heading": "Inter", "body": "Merriweather"}},
+                created_by_id=admin.id if admin else admin_user.id
+            )
+            session.add(default_template)
+            await session.commit()
+            print("Default magazine template seeded successfully.")
+        else:
+            await session.commit()
+            print("Default magazine template already exists. Skipping.")
 
 if __name__ == "__main__":
     asyncio.run(seed_data())

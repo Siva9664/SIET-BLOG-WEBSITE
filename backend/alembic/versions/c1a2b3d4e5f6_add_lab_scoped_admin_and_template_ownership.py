@@ -17,108 +17,112 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # 1. Create labs table
-    op.create_table(
-        'labs',
-        sa.Column('id', sa.Integer(), nullable=False),
-        sa.Column('name', sa.String(length=100), nullable=False),
-        sa.Column('code', sa.String(length=20), nullable=False),
-        sa.Column('slug', sa.String(length=100), nullable=False),
-        sa.Column('department_id', sa.Integer(), nullable=True),
-        sa.Column('description', sa.Text(), nullable=True),
-        sa.Column('is_active', sa.Boolean(), server_default=sa.text('true'), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('version', sa.Integer(), server_default=sa.text('1'), nullable=False),
-        sa.PrimaryKeyConstraint('id')
-    )
-    op.create_index(op.f('ix_labs_id'), 'labs', ['id'], unique=False)
-    op.create_index(op.f('ix_labs_code'), 'labs', ['code'], unique=True)
-    op.create_index(op.f('ix_labs_slug'), 'labs', ['slug'], unique=True)
+    conn = op.get_bind()
 
-    # 2. Create lab_memberships table
-    op.create_table(
-        'lab_memberships',
-        sa.Column('id', sa.Integer(), nullable=False),
-        sa.Column('user_id', sa.Integer(), nullable=False),
-        sa.Column('lab_id', sa.Integer(), nullable=False),
-        sa.Column('role', sa.String(length=20), server_default='LAB_ADMIN', nullable=False),
-        sa.Column('is_active', sa.Boolean(), server_default=sa.text('true'), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('version', sa.Integer(), server_default=sa.text('1'), nullable=False),
-        sa.ForeignKeyConstraint(['lab_id'], ['labs.id'], ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('user_id', 'lab_id', name='uq_user_lab')
-    )
-    op.create_index(op.f('ix_lab_memberships_id'), 'lab_memberships', ['id'], unique=False)
-    op.create_index(op.f('ix_lab_memberships_user_id'), 'lab_memberships', ['user_id'], unique=False)
-    op.create_index(op.f('ix_lab_memberships_lab_id'), 'lab_memberships', ['lab_id'], unique=False)
+    def table_exists(name: str) -> bool:
+        return conn.execute(
+            sa.text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name=:n)"),
+            {"n": name},
+        ).scalar()
 
-    # 3. Create template_lab_assignments table
-    op.create_table(
-        'template_lab_assignments',
-        sa.Column('id', sa.Integer(), nullable=False),
-        sa.Column('template_id', sa.Integer(), nullable=False),
-        sa.Column('lab_id', sa.Integer(), nullable=False),
-        sa.Column('is_active', sa.Boolean(), server_default=sa.text('true'), nullable=False),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('version', sa.Integer(), server_default=sa.text('1'), nullable=False),
-        sa.ForeignKeyConstraint(['lab_id'], ['labs.id'], ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['template_id'], ['magazine_templates.id'], ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('template_id', 'lab_id', name='uq_template_lab')
-    )
-    op.create_index(op.f('ix_template_lab_assignments_id'), 'template_lab_assignments', ['id'], unique=False)
-    op.create_index(op.f('ix_template_lab_assignments_template_id'), 'template_lab_assignments', ['template_id'], unique=False)
-    op.create_index(op.f('ix_template_lab_assignments_lab_id'), 'template_lab_assignments', ['lab_id'], unique=False)
+    def col_exists(tbl: str, col: str) -> bool:
+        return conn.execute(
+            sa.text("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema='public' AND table_name=:t AND column_name=:c)"),
+            {"t": tbl, "c": col},
+        ).scalar()
 
-    # 4. Add columns to magazine_templates
-    op.add_column('magazine_templates', sa.Column('is_global', sa.Boolean(), server_default=sa.text('true'), nullable=False))
-    op.add_column('magazine_templates', sa.Column('lab_id', sa.Integer(), nullable=True))
-    op.add_column('magazine_templates', sa.Column('priority', sa.Integer(), server_default=sa.text('0'), nullable=False))
-    op.add_column('magazine_templates', sa.Column('created_by_id', sa.Integer(), nullable=True))
-    op.add_column('magazine_templates', sa.Column('updated_by_id', sa.Integer(), nullable=True))
-    op.create_foreign_key('fk_magazine_templates_lab_id', 'magazine_templates', 'labs', ['lab_id'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key('fk_magazine_templates_created_by_id', 'magazine_templates', 'users', ['created_by_id'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key('fk_magazine_templates_updated_by_id', 'magazine_templates', 'users', ['updated_by_id'], ['id'], ondelete='SET NULL')
-    op.create_index(op.f('ix_magazine_templates_lab_id'), 'magazine_templates', ['lab_id'], unique=False)
+    # 1. labs (may already exist from e4b4ce451d00)
+    if not table_exists("labs"):
+        conn.execute(sa.text("""
+            CREATE TABLE labs (
+                id           SERIAL PRIMARY KEY,
+                name         VARCHAR(100) NOT NULL,
+                code         VARCHAR(20),
+                slug         VARCHAR(100),
+                department_id INTEGER REFERENCES domains(id) ON DELETE SET NULL,
+                description  TEXT,
+                is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+                deleted_at   TIMESTAMPTZ,
+                version      INTEGER NOT NULL DEFAULT 1
+            )
+        """))
+    conn.execute(sa.text("CREATE UNIQUE INDEX IF NOT EXISTS ix_labs_slug ON labs(slug) WHERE slug IS NOT NULL"))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_labs_id ON labs(id)"))
 
-    # 5. Add columns to magazines
-    op.add_column('magazines', sa.Column('lab_id', sa.Integer(), nullable=True))
-    op.add_column('magazines', sa.Column('created_by_id', sa.Integer(), nullable=True))
-    op.add_column('magazines', sa.Column('updated_by_id', sa.Integer(), nullable=True))
-    op.add_column('magazines', sa.Column('template_id', sa.Integer(), nullable=True))
-    op.add_column('magazines', sa.Column('template_version_id', sa.Integer(), nullable=True))
-    op.add_column('magazines', sa.Column('review_notes', sa.Text(), nullable=True))
-    op.create_foreign_key('fk_magazines_lab_id', 'magazines', 'labs', ['lab_id'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key('fk_magazines_created_by_id', 'magazines', 'users', ['created_by_id'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key('fk_magazines_updated_by_id', 'magazines', 'users', ['updated_by_id'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key('fk_magazines_template_id', 'magazines', 'magazine_templates', ['template_id'], ['id'], ondelete='SET NULL')
-    op.create_foreign_key('fk_magazines_template_version_id', 'magazines', 'template_versions', ['template_version_id'], ['id'], ondelete='SET NULL')
-    op.create_index(op.f('ix_magazines_lab_id'), 'magazines', ['lab_id'], unique=False)
+    # 2. lab_memberships
+    if not table_exists("lab_memberships"):
+        conn.execute(sa.text("""
+            CREATE TABLE lab_memberships (
+                id         SERIAL PRIMARY KEY,
+                user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                lab_id     INTEGER NOT NULL REFERENCES labs(id) ON DELETE CASCADE,
+                role       VARCHAR(20) NOT NULL DEFAULT 'LAB_ADMIN',
+                is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                deleted_at TIMESTAMPTZ,
+                version    INTEGER NOT NULL DEFAULT 1,
+                CONSTRAINT uq_user_lab UNIQUE (user_id, lab_id)
+            )
+        """))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_lab_memberships_user_id ON lab_memberships(user_id)"))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_lab_memberships_lab_id  ON lab_memberships(lab_id)"))
 
-    # 6. Add columns to media
-    op.add_column('media', sa.Column('lab_id', sa.Integer(), nullable=True))
-    op.create_foreign_key('fk_media_lab_id', 'media', 'labs', ['lab_id'], ['id'], ondelete='SET NULL')
-    op.create_index(op.f('ix_media_lab_id'), 'media', ['lab_id'], unique=False)
+    # 3. template_lab_assignments (may already exist from e4b4ce451d00)
+    if not table_exists("template_lab_assignments"):
+        conn.execute(sa.text("""
+            CREATE TABLE template_lab_assignments (
+                id          SERIAL PRIMARY KEY,
+                template_id INTEGER NOT NULL REFERENCES magazine_templates(id) ON DELETE CASCADE,
+                lab_id      INTEGER NOT NULL REFERENCES labs(id) ON DELETE CASCADE,
+                is_active   BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+                deleted_at  TIMESTAMPTZ,
+                version     INTEGER NOT NULL DEFAULT 1,
+                CONSTRAINT uq_template_lab UNIQUE (template_id, lab_id)
+            )
+        """))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_template_lab_assignments_template_id ON template_lab_assignments(template_id)"))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_template_lab_assignments_lab_id      ON template_lab_assignments(lab_id)"))
 
-    # 7. Add columns to source_documents
-    op.add_column('source_documents', sa.Column('lab_id', sa.Integer(), nullable=True))
-    op.create_foreign_key('fk_source_documents_lab_id', 'source_documents', 'labs', ['lab_id'], ['id'], ondelete='SET NULL')
-    op.create_index(op.f('ix_source_documents_lab_id'), 'source_documents', ['lab_id'], unique=False)
+    # 4. magazine_templates — add ownership columns
+    conn.execute(sa.text("ALTER TABLE magazine_templates ADD COLUMN IF NOT EXISTS is_global BOOLEAN NOT NULL DEFAULT TRUE"))
+    conn.execute(sa.text("ALTER TABLE magazine_templates ADD COLUMN IF NOT EXISTS lab_id INTEGER REFERENCES labs(id) ON DELETE SET NULL"))
+    conn.execute(sa.text("ALTER TABLE magazine_templates ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0"))
+    conn.execute(sa.text("ALTER TABLE magazine_templates ADD COLUMN IF NOT EXISTS created_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL"))
+    conn.execute(sa.text("ALTER TABLE magazine_templates ADD COLUMN IF NOT EXISTS updated_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL"))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_magazine_templates_lab_id      ON magazine_templates(lab_id)"))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_magazine_templates_is_global   ON magazine_templates(is_global)"))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_magazine_templates_priority    ON magazine_templates(priority)"))
 
-    # 8. Add columns to template_versions
-    op.add_column('template_versions', sa.Column('section_schema_snapshot', postgresql.JSONB(astext_type=sa.Text()), nullable=True))
-    op.add_column('template_versions', sa.Column('style_rules_snapshot', postgresql.JSONB(astext_type=sa.Text()), nullable=True))
-    op.add_column('template_versions', sa.Column('changelog', sa.Text(), nullable=True))
-    op.add_column('template_versions', sa.Column('created_by_id', sa.Integer(), nullable=True))
-    op.create_foreign_key('fk_template_versions_created_by_id', 'template_versions', 'users', ['created_by_id'], ['id'], ondelete='SET NULL')
+    # 5. magazines — add lab/template ownership columns
+    conn.execute(sa.text("ALTER TABLE magazines ADD COLUMN IF NOT EXISTS lab_id INTEGER REFERENCES labs(id) ON DELETE SET NULL"))
+    conn.execute(sa.text("ALTER TABLE magazines ADD COLUMN IF NOT EXISTS created_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL"))
+    conn.execute(sa.text("ALTER TABLE magazines ADD COLUMN IF NOT EXISTS updated_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL"))
+    conn.execute(sa.text("ALTER TABLE magazines ADD COLUMN IF NOT EXISTS template_id INTEGER REFERENCES magazine_templates(id) ON DELETE SET NULL"))
+    conn.execute(sa.text("ALTER TABLE magazines ADD COLUMN IF NOT EXISTS template_version_id INTEGER"))
+    conn.execute(sa.text("ALTER TABLE magazines ADD COLUMN IF NOT EXISTS review_notes TEXT"))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_magazines_lab_id ON magazines(lab_id)"))
+
+    # 6. media — add lab_id
+    conn.execute(sa.text("ALTER TABLE media ADD COLUMN IF NOT EXISTS lab_id INTEGER REFERENCES labs(id) ON DELETE SET NULL"))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_media_lab_id ON media(lab_id)"))
+
+    # 7. source_documents — only if the table exists (it's not in the migration chain)
+    if table_exists("source_documents"):
+        conn.execute(sa.text("ALTER TABLE source_documents ADD COLUMN IF NOT EXISTS lab_id INTEGER REFERENCES labs(id) ON DELETE SET NULL"))
+        conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_source_documents_lab_id ON source_documents(lab_id)"))
+
+    # 8. template_versions — add snapshot/changelog columns (may already exist from e4b4ce451d00)
+    if table_exists("template_versions"):
+        conn.execute(sa.text("ALTER TABLE template_versions ADD COLUMN IF NOT EXISTS section_schema_snapshot JSONB"))
+        conn.execute(sa.text("ALTER TABLE template_versions ADD COLUMN IF NOT EXISTS style_rules_snapshot JSONB"))
+        conn.execute(sa.text("ALTER TABLE template_versions ADD COLUMN IF NOT EXISTS changelog TEXT"))
+        conn.execute(sa.text("ALTER TABLE template_versions ADD COLUMN IF NOT EXISTS created_by_id INTEGER REFERENCES users(id) ON DELETE SET NULL"))
+
 
 
 def downgrade() -> None:
