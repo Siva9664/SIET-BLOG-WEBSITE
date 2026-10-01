@@ -95,3 +95,5 @@ reference-magazines/
 # Large reference publications
 reference-magazines/**/*.pdf
 backend/output/
+backend/uploads/
+backend/*.sql
