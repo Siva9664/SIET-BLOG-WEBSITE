@@ -545,6 +545,7 @@ def draw_region_body(
     text: str,
     theme: ThemeTokens,
     fonts: FontTokens,
+    initial_fontsize: float = 10.0,
 ) -> None:
     """Renders multi-line body paragraphs with font-size fitting and safe truncation."""
     fit_text_box(
@@ -552,7 +553,7 @@ def draw_region_body(
         rect=rect,
         text=text,
         fontname=fonts.body,
-        initial_fontsize=10.0,
+        initial_fontsize=initial_fontsize,
         min_fontsize=8.0,
         color=theme.rgb("ink"),
         align=fitz.TEXT_ALIGN_LEFT,
@@ -841,7 +842,25 @@ def render_page_from_plan(
     # [hero_image: top half, headline: center, body: bottom left, caption: below image]
     has_hero = any(getattr(r, "region_id", "") == "hero_image" or (isinstance(r, dict) and r.get("region_id") == "hero_image") for r in regions_raw)
 
-    if page_type == "project_showcase" or has_hero:
+    _IMAGE_RTYPES = ("image", "portrait", "landscape", "image_grid")
+
+    def _region_field(r: Any, name: str) -> Any:
+        return getattr(r, name, None) or (r.get(name) if isinstance(r, dict) else None)
+
+    def _is_image_region(r: Any) -> bool:
+        return _region_field(r, "region_id") == "hero_image" or _region_field(r, "type") in _IMAGE_RTYPES
+
+    # A page only gets an image area when at least one image region points at a photo that exists on disk.
+    page_has_image = any(
+        _is_image_region(r) and _resolve_image_path(_region_field(r, "asset")) for r in regions_raw
+    )
+
+    if not page_has_image:
+        # Text-only layout: headline on top, body uses the full page width (no empty grey image box).
+        headline_rect = fitz.Rect(content_x0, content_y0, content_x0 + content_w, content_y0 + 50)
+        hero_rect = fitz.Rect(content_x0, content_y0 + 60, content_x0 + content_w, content_y0 + 60)
+        body_rect = fitz.Rect(content_x0, content_y0 + 70, content_x0 + content_w, content_y1 - 10)
+    elif page_type == "project_showcase" or has_hero:
         headline_rect = fitz.Rect(content_x0, content_y0, content_x0 + content_w, content_y0 + 55)
         hero_rect = fitz.Rect(content_x0, content_y0 + 65, content_x0 + content_w, content_y0 + 380)
         body_rect = fitz.Rect(content_x0, content_y0 + 395, content_x0 + content_w, content_y1 - 10)
@@ -856,6 +875,12 @@ def render_page_from_plan(
         content = getattr(r, "content", None) or (r.get("content") if isinstance(r, dict) else "")
         asset = getattr(r, "asset", None) or (r.get("asset") if isinstance(r, dict) else "")
         caption = getattr(r, "caption", None) or (r.get("caption") if isinstance(r, dict) else "")
+
+        # Never draw an image box without a real photo.
+        if (rid == "hero_image" or rtype in _IMAGE_RTYPES) and not _resolve_image_path(asset):
+            continue
+        if rid == "caption" and not page_has_image:
+            continue
 
         if rid == "headline" or rtype == "headline":
             draw_region_headline(page, headline_rect, content or "Project Prototype Showcase", theme, fonts)
@@ -881,7 +906,7 @@ def render_page_from_plan(
             draw_region_image_grid(page, hero_rect, grid_items, theme, fonts)
 
         elif rid == "body" or rtype == "body":
-            draw_region_body(page, body_rect, content or "", theme, fonts)
+            draw_region_body(page, body_rect, content or "", theme, fonts, initial_fontsize=10.0 if page_has_image else 12.5)
 
         elif rtype == "quote":
             quote_rect = fitz.Rect(content_x0, content_y1 - 80, content_x0 + content_w, content_y1)

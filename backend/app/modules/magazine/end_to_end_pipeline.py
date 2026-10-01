@@ -39,7 +39,9 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 import fitz  # PyMuPDF
+from fastapi import HTTPException
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import logger
@@ -90,6 +92,122 @@ def _slugify(text: str) -> str:
     s = re.sub(r"[^\w\s-]", "", s)
     s = re.sub(r"[\s_-]+", "-", s)
     return s or f"magazine-{int(time.time())}"
+
+
+def _split_source_sections(text: str) -> List[Dict[str, Any]]:
+    """Split source text into [{"title", "paras"}] using short unpunctuated lines as headings."""
+    lines = [ln.strip() for ln in (text or "").split("\n") if ln.strip()]
+    sections: List[Dict[str, Any]] = []
+    cur: Optional[Dict[str, Any]] = None
+    for i, ln in enumerate(lines):
+        is_heading = (
+            len(ln) <= 100
+            and len(ln.split()) <= 14
+            and not ln.endswith((".", "!", "?", ",", ";"))
+            and i + 1 < len(lines)
+        )
+        if is_heading and cur is not None and not cur["paras"] and not sections:
+            # Title block (e.g. title followed by "Event Date: ..."): keep as lead text, never drop it.
+            cur["paras"].append(ln)
+        elif is_heading:
+            carry: List[str] = []
+            if cur is not None:
+                if cur["paras"]:
+                    sections.append(cur)
+                else:
+                    carry = [cur["title"]]  # heading with no body: keep its text, do not lose it
+            cur = {"title": ln, "paras": carry}
+        else:
+            if cur is None:
+                cur = {"title": "", "paras": []}
+            cur["paras"].append(ln)
+    if cur is not None and cur["paras"]:
+        sections.append(cur)
+    return sections
+
+
+def _build_content_units(structured: Dict[str, Any], source_text: str, from_llm: bool) -> List[Dict[str, str]]:
+    """Ordered, non-repeating content units [{"title", "body"}] that will be spread over pages."""
+    units: List[Dict[str, str]] = []
+    if from_llm:
+        wt = (structured.get("writeup_text") or "").strip()
+        if wt:
+            units.append({"title": structured.get("writeup_headline") or "", "body": wt})
+        for key, extra in (("projects", "team"), ("achievements", "recipient"), ("events", "date")):
+            for it in structured.get(key, []) or []:
+                body = (it.get("description") or "").strip()
+                if extra in it and it.get(extra) and key != "events":
+                    body = f"{body} ({it[extra]})" if body else str(it[extra])
+                if body:
+                    units.append({"title": it.get("title") or "", "body": body})
+    else:
+        for sec in _split_source_sections(source_text):
+            units.append({"title": sec["title"], "body": "\n\n".join(sec["paras"])})
+    return units
+
+
+def _split_text_in_two(body: str) -> Optional[List[str]]:
+    """Split a body in two at a paragraph boundary, else a sentence boundary, near the middle."""
+    paras = [x for x in body.split("\n\n") if x.strip()]
+    if len(paras) >= 2:
+        best, best_gap, run = 1, None, 0
+        total = sum(len(x) for x in paras)
+        for i in range(1, len(paras)):
+            run += len(paras[i - 1])
+            gap = abs(total / 2 - run)
+            if best_gap is None or gap < best_gap:
+                best, best_gap = i, gap
+        return ["\n\n".join(paras[:best]), "\n\n".join(paras[best:])]
+    sentences = re.split(r"(?<=[.!?])\s+", body.strip())
+    if len(sentences) >= 2 and len(body) > 300:
+        total, run, cut, best_gap = len(body), 0, 1, None
+        for i in range(1, len(sentences)):
+            run += len(sentences[i - 1]) + 1
+            gap = abs(total / 2 - run)
+            if best_gap is None or gap < best_gap:
+                cut, best_gap = i, gap
+        return [" ".join(sentences[:cut]), " ".join(sentences[cut:])]
+    return None
+
+
+def _expand_units(units: List[Dict[str, str]], n_pages: int) -> List[Dict[str, str]]:
+    """If there are fewer units than pages, split the largest unit (real text only, no filler)."""
+    units = [dict(u) for u in units]
+    while len(units) < n_pages:
+        order = sorted(range(len(units)), key=lambda k: len(units[k]["body"]), reverse=True)
+        done = False
+        for idx in order:
+            parts = _split_text_in_two(units[idx]["body"])
+            if parts and all(len(x) >= 60 for x in parts):
+                title = units[idx]["title"]
+                units[idx]["body"] = parts[0]
+                units.insert(idx + 1, {"title": f"{title} (continued)" if title else "", "body": parts[1]})
+                done = True
+                break
+        if not done:
+            break
+    return units
+
+
+def _distribute_units(units: List[Dict[str, str]], n_pages: int) -> List[List[Dict[str, str]]]:
+    """Group consecutive units into at most n_pages balanced-by-length groups; nothing is dropped."""
+    if not units or n_pages <= 0:
+        return []
+    if len(units) <= n_pages:
+        return [[u] for u in units]
+    total = sum(len(u["body"]) + len(u["title"]) for u in units) or 1
+    target = total / n_pages
+    groups: List[List[Dict[str, str]]] = [[]]
+    acc = 0.0
+    for idx, u in enumerate(units):
+        remaining_units = len(units) - idx
+        remaining_groups = n_pages - len(groups)
+        if groups[-1] and acc >= target and remaining_groups > 0 and remaining_units > 0:
+            groups.append([])
+            acc = 0.0
+        groups[-1].append(u)
+        acc += len(u["body"]) + len(u["title"])
+    return groups
 
 
 async def _emit_progress(
@@ -316,6 +434,8 @@ Return ONLY valid JSON matching this schema:
                 toc_summary = llm_res.get("toc_summary") or ""
         except Exception as e:
             logger.warning(f"[Pipeline] LLM extraction fallback triggered: {e}")
+
+    llm_content_used = bool(use_llm and structured_content and structured_content.get("projects"))
 
     # Deterministic fallback if LLM returned partial/empty data
     if not structured_content or not structured_content.get("projects"):
@@ -575,21 +695,34 @@ Return ONLY valid JSON matching this schema:
         start_page_number=1,
     )
 
+    content_units = _build_content_units(structured_content, extracted_text, llm_content_used)
+    content_units = _expand_units(content_units, len(multi_page_plan.pages))
+    unit_groups = _distribute_units(content_units, len(multi_page_plan.pages))
+    if not unit_groups:
+        unit_groups = [[{"title": structured_content.get("writeup_headline", ""), "body": structured_content.get("writeup_text", "")}]]
+
     page_plans: List[PagePlan] = []
-    for planned_p in multi_page_plan.pages:
+    for planned_p in multi_page_plan.pages[: len(unit_groups)]:
+        group = unit_groups[planned_p.page_number - 1] if planned_p.page_number - 1 < len(unit_groups) else unit_groups[-1]
+        first_title = group[0]["title"] or structured_content.get("writeup_headline", "") or issue_title
+        body_parts: List[str] = []
+        for gi, u in enumerate(group):
+            if gi > 0 and u["title"]:
+                body_parts.append(u["title"].upper())
+            if u["body"]:
+                body_parts.append(u["body"])
+        group_body = "\n\n".join(body_parts)
         p_type = planned_p.page_type or "article"
         sec_name = planned_p.section or p_type
         sec_title = str(sec_name).replace("_", " ").title()
 
         page_content = {
             "title": issue_title if planned_p.page_number == 1 else f"{issue_title} — {sec_title}",
-            "headline": structured_content.get("writeup_headline", f"{department_or_lab} Proceedings") if planned_p.page_number <= 2 else f"Highlights & Initiatives: {sec_title}",
-            "writeup": structured_content.get("writeup_text", "") if p_type in ("article", "project_showcase") else (
-                issue_description if planned_p.page_number == 1 else f"Documentation and achievements for {sec_title}."
-            ),
+            "headline": first_title,
+            "writeup": group_body,
             "caption": (
                 structured_content.get("captions", [""])[min(planned_p.page_number - 1, len(structured_content.get("captions", [""])) - 1)]
-                if structured_content.get("captions") else f"Photographic record for {active_event_name}."
+                if (llm_content_used and structured_content.get("captions") and combined_photos) else ""
             ),
             "department": department_or_lab,
             "section": sec_name,
@@ -770,14 +903,9 @@ Return ONLY valid JSON matching this schema:
         })
 
     saved_magazine_id: Optional[int] = None
+    final_slug = issue_slug
     if db is not None:
         try:
-            final_slug = issue_slug
-            idx = 1
-            while await db.scalar(select(Magazine.id).where(Magazine.slug == final_slug)):
-                final_slug = f"{issue_slug}-{idx}"
-                idx += 1
-
             mag_record = Magazine(
                 title=issue_title,
                 slug=final_slug,
@@ -799,8 +927,51 @@ Return ONLY valid JSON matching this schema:
                 published_at=datetime.now(timezone.utc) if publish_immediately else None,
                 processed_at=datetime.now(timezone.utc),
             )
-            db.add(mag_record)
-            await db.flush()
+            # Race-safe slug allocation: try to insert, on unique violation move to the next suffix.
+                        taken_slugs: set = set()
+            next_n = 1
+            for attempt in range(40):
+                if attempt == 0:
+                    candidate = issue_slug
+                elif attempt < 30:
+                    if attempt == 1:
+                        # First conflict: load every slug with this prefix once and jump to the next free number.
+                        rows = await db.execute(select(Magazine.slug).where(Magazine.slug.like(f"{issue_slug}%")))
+                        taken_slugs = {r for (r,) in rows.all()}
+                    while f"{issue_slug}-{next_n}" in taken_slugs:
+                        next_n += 1
+                    candidate = f"{issue_slug}-{next_n}"
+                    taken_slugs.add(candidate)
+                else:
+                    candidate = f"{issue_slug}-{uuid.uuid4().hex[:6]}"
+                mag_record.slug = candidate
+                try:
+                    async with db.begin_nested():
+                        db.add(mag_record)
+                        await db.flush()
+                    final_slug = candidate
+                    break
+                except IntegrityError as ie:
+                    if "slug" not in str(ie).lower():
+                        raise
+                    if mag_record in db:
+                        db.expunge(mag_record)
+                    continue
+                mag_record.slug = candidate
+                try:
+                    async with db.begin_nested():
+                        db.add(mag_record)
+                        await db.flush()
+                    final_slug = candidate
+                    break
+                except IntegrityError as ie:
+                    if "slug" not in str(ie).lower():
+                        raise
+                    if mag_record in db:
+                        db.expunge(mag_record)
+                    continue
+            else:
+                raise RuntimeError(f"Could not allocate a unique slug for '{issue_slug}'")
             saved_magazine_id = mag_record.id
 
             pages_to_add = []
@@ -829,6 +1000,13 @@ Return ONLY valid JSON matching this schema:
         except Exception as db_err:
             logger.error(f"[Pipeline] Database persistence error: {db_err}", exc_info=True)
             await db.rollback()
+            # Never report success for something that was not saved: remove orphan files and fail loudly.
+            for orphan in [pdf_filepath] + [os.path.join(PREVIEWS_OUTPUT_DIR, os.path.basename(u)) for u in page_previews]:
+                try:
+                    os.remove(orphan)
+                except OSError:
+                    pass
+            raise HTTPException(status_code=500, detail="Magazine was rendered but could not be saved to the database.")
 
     s9_elapsed = time.time() - s9_start
     total_elapsed = time.time() - total_start_time
@@ -852,7 +1030,7 @@ Return ONLY valid JSON matching this schema:
     return EndToEndMagazineResponse(
         magazine_id=saved_magazine_id,
         title=issue_title,
-        slug=issue_slug,
+        slug=final_slug,
         department_or_lab=department_or_lab,
         status="published" if publish_immediately else "draft",
         pdf_url=public_pdf_url,
@@ -864,5 +1042,5 @@ Return ONLY valid JSON matching this schema:
         qc_reports=qc_reports,
         overall_quality_score=round(avg_qc_score, 1),
         execution_time_seconds=round(total_elapsed, 2),
-        notes=f"Successfully generated {total_pages} publication pages adhering to {department_or_lab} templates and visual QC standards.",
+        notes=f"[content: {'LLM' if llm_content_used else 'source document (no LLM)'}] Successfully generated {total_pages} publication pages adhering to {department_or_lab} templates and visual QC standards.",
     )
