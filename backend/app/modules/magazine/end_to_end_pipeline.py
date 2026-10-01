@@ -38,7 +38,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF (fitz API deprecated; use pymupdf)
 from fastapi import HTTPException
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -927,15 +927,15 @@ Return ONLY valid JSON matching this schema:
                 published_at=datetime.now(timezone.utc) if publish_immediately else None,
                 processed_at=datetime.now(timezone.utc),
             )
-            # Race-safe slug allocation: try to insert, on unique violation move to the next suffix.
-                        taken_slugs: set = set()
+            # Race-safe slug allocation: try to insert; on unique violation move to the next suffix.
+            taken_slugs: set = set()
             next_n = 1
             for attempt in range(40):
                 if attempt == 0:
                     candidate = issue_slug
                 elif attempt < 30:
                     if attempt == 1:
-                        # First conflict: load every slug with this prefix once and jump to the next free number.
+                        # First conflict: batch-load all slugs with this prefix, then jump to the first free number.
                         rows = await db.execute(select(Magazine.slug).where(Magazine.slug.like(f"{issue_slug}%")))
                         taken_slugs = {r for (r,) in rows.all()}
                     while f"{issue_slug}-{next_n}" in taken_slugs:
@@ -954,20 +954,7 @@ Return ONLY valid JSON matching this schema:
                 except IntegrityError as ie:
                     if "slug" not in str(ie).lower():
                         raise
-                    if mag_record in db:
-                        db.expunge(mag_record)
-                    continue
-                mag_record.slug = candidate
-                try:
-                    async with db.begin_nested():
-                        db.add(mag_record)
-                        await db.flush()
-                    final_slug = candidate
-                    break
-                except IntegrityError as ie:
-                    if "slug" not in str(ie).lower():
-                        raise
-                    if mag_record in db:
+                    if mag_record in db.identity_map.values():
                         db.expunge(mag_record)
                     continue
             else:

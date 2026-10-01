@@ -4,7 +4,7 @@ import os
 import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import fitz
+import pymupdf as fitz
 from PIL import Image
 
 from app.core.logging import logger

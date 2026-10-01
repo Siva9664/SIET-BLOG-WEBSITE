@@ -896,7 +896,7 @@ async def api_validate_page_visual_quality(
     small text, and margins. Returns quality scores (0-100) and issues list.
     Optionally executes closed-loop recovery with regeneration limits.
     """
-    import fitz
+    import pymupdf as fitz
     from app.modules.magazine.renderer import render_page_from_plan
 
     doc = fitz.open()

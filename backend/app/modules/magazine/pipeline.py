@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import os
 import re
 import uuid
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF (fitz API deprecated; use pymupdf)
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 

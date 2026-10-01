@@ -2,7 +2,7 @@ import os
 import uuid
 from typing import Any, Dict, List
 
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF (fitz API deprecated; use pymupdf)
 
 
 def analyze_template_pdf_visual_blueprint(file_bytes: bytes, filename: str) -> Dict[str, Any]:

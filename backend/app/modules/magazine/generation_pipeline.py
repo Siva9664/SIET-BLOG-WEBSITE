@@ -33,7 +33,7 @@ import os
 import re
 import io
 import json
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF (fitz API deprecated; use pymupdf)
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 from PIL import Image

@@ -21,7 +21,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF (fitz API deprecated; use pymupdf)
 from PIL import Image, ImageOps
 
 from app.core.logging import logger

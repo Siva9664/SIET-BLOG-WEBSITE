@@ -19,24 +19,24 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
-    # magazines table columns
-    op.add_column('magazines', sa.Column('department_id', sa.Integer(), nullable=True))
-    op.add_column('magazines', sa.Column('department_name', sa.String(length=150), nullable=True))
-    op.add_column('magazines', sa.Column('target_page_budget', sa.Integer(), server_default='4', nullable=False))
-    op.create_foreign_key('fk_magazines_department_id_domains', 'magazines', 'domains', ['department_id'], ['id'], ondelete='SET NULL')
-    op.create_index(op.f('ix_magazines_department_id'), 'magazines', ['department_id'], unique=False)
+    """Upgrade schema — idempotent: all columns use ADD COLUMN IF NOT EXISTS."""
+    conn = op.get_bind()
 
-    # magazine_templates table columns
-    op.add_column('magazine_templates', sa.Column('department_id', sa.Integer(), nullable=True))
-    op.add_column('magazine_templates', sa.Column('department_slug', sa.String(length=150), nullable=True))
-    op.add_column('magazine_templates', sa.Column('template_family', sa.String(length=100), server_default='academic_digest', nullable=False))
-    op.add_column('magazine_templates', sa.Column('page_budget', sa.Integer(), server_default='4', nullable=False))
-    op.add_column('magazine_templates', sa.Column('description', sa.Text(), nullable=True))
-    op.create_foreign_key('fk_magazine_templates_department_id_domains', 'magazine_templates', 'domains', ['department_id'], ['id'], ondelete='SET NULL')
-    op.create_index(op.f('ix_magazine_templates_department_id'), 'magazine_templates', ['department_id'], unique=False)
-    op.create_index(op.f('ix_magazine_templates_department_slug'), 'magazine_templates', ['department_slug'], unique=False)
-    op.create_index(op.f('ix_magazine_templates_template_family'), 'magazine_templates', ['template_family'], unique=False)
+    # magazines table columns
+    conn.execute(sa.text("ALTER TABLE magazines ADD COLUMN IF NOT EXISTS department_id INTEGER REFERENCES domains(id) ON DELETE SET NULL"))
+    conn.execute(sa.text("ALTER TABLE magazines ADD COLUMN IF NOT EXISTS department_name VARCHAR(150)"))
+    conn.execute(sa.text("ALTER TABLE magazines ADD COLUMN IF NOT EXISTS target_page_budget INTEGER NOT NULL DEFAULT 4"))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_magazines_department_id ON magazines(department_id)"))
+
+    # magazine_templates table columns (may already exist from e4b4ce451d00)
+    conn.execute(sa.text("ALTER TABLE magazine_templates ADD COLUMN IF NOT EXISTS department_id INTEGER REFERENCES domains(id) ON DELETE SET NULL"))
+    conn.execute(sa.text("ALTER TABLE magazine_templates ADD COLUMN IF NOT EXISTS department_slug VARCHAR(150)"))
+    conn.execute(sa.text("ALTER TABLE magazine_templates ADD COLUMN IF NOT EXISTS template_family VARCHAR(100) NOT NULL DEFAULT 'academic_digest'"))
+    conn.execute(sa.text("ALTER TABLE magazine_templates ADD COLUMN IF NOT EXISTS page_budget INTEGER NOT NULL DEFAULT 4"))
+    conn.execute(sa.text("ALTER TABLE magazine_templates ADD COLUMN IF NOT EXISTS description TEXT"))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_magazine_templates_department_id   ON magazine_templates(department_id)"))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_magazine_templates_department_slug ON magazine_templates(department_slug)"))
+    conn.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_magazine_templates_template_family ON magazine_templates(template_family)"))
 
 
 def downgrade() -> None:

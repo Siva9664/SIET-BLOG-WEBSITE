@@ -20,7 +20,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema: add template_metadata JSON column to magazine_templates."""
-    op.add_column('magazine_templates', sa.Column('template_metadata', sa.JSON(), nullable=True))
+    op.get_bind().execute(sa.text(
+        "ALTER TABLE magazine_templates ADD COLUMN IF NOT EXISTS template_metadata JSON DEFAULT '{}'"
+    ))
 
 
 def downgrade() -> None:
