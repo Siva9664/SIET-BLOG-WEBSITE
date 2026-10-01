@@ -386,13 +386,14 @@ class PageQCRequest(BaseModel):
 PIPELINE_STAGES = [
     "Reading documents",
     "Extracting content",
-    "Understanding sections",
-    "Selecting templates",
+    "Building knowledge base",
+    "Retrieving source content",
+    "Generating content",
+    "Verifying facts",
     "Matching photographs",
     "Planning pages",
-    "Rendering pages",
-    "Validating pages",
-    "Finalizing magazine",
+    "Rendering PDF",
+    "Final validation",
 ]
 
 
@@ -418,9 +419,12 @@ class EndToEndMagazineRequest(BaseModel):
     custom_templates: list[dict[str, Any]] = []
     target_page_budget: int = 5
     template_id: int | str | None = None
-    publish_immediately: bool = True
+    publish_immediately: bool = False
     use_llm: bool = True
     max_qc_attempts: int = 3
+    volume: int | None = None
+    issue_number: int | None = None
+    academic_year: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -438,6 +442,10 @@ class EndToEndMagazineResponse(BaseModel):
     toc_entries: list[dict[str, Any]] = []
     stage_telemetry: list[PipelineProgressStage] = []
     qc_reports: list[dict[str, Any]] = []
+    factual_verification: dict[str, Any] | None = None
+    photo_matching: list[dict[str, Any]] = []
+    source_provenance: dict[str, Any] = {}
+    validation_status: str = "PASS"
     overall_quality_score: float = 0.0
     execution_time_seconds: float = 0.0
     notes: str = ""

@@ -97,23 +97,57 @@ def _save_image_bytes(img_bytes: bytes, mime_type: str, idx: int) -> dict:
     }
 
 
-def parse_docx(file_bytes: bytes) -> tuple[str, list[dict]]:
+def parse_docx_structured(file_bytes: bytes) -> tuple[str, list[dict], list[dict], list[dict]]:
+    """Parse docx preserving structured spans, tables, and embedded images."""
     doc = docx.Document(io.BytesIO(file_bytes))
     lines = []
+    images = []
+    spans = []
+    img_count = 0
+    current_char = 0
 
-    for p in doc.paragraphs:
-        if p.text.strip():
-            lines.append(p.text.strip())
+    for p_idx, p in enumerate(doc.paragraphs):
+        p_text = p.text.strip()
+        if not p_text:
+            continue
+        p_style = getattr(p.style, "name", "").lower() if p.style else ""
+        is_heading = "heading" in p_style or (len(p_text) < 80 and not p_text.endswith("."))
+        approx_page = max(1, (len(" ".join(lines).split()) // 400) + 1)
 
-    for t in doc.tables:
+        lines.append(p_text)
+        p_start = current_char
+        p_end = current_char + len(p_text)
+        spans.append({
+            "page_number": approx_page,
+            "section_label": p_style if is_heading else f"paragraph_{p_idx + 1}",
+            "heading_hint": p_text if is_heading else "",
+            "text": p_text,
+            "char_start": p_start,
+            "char_end": p_end,
+        })
+        current_char = p_end + 1
+
+    for t_idx, t in enumerate(doc.tables):
+        approx_page = max(1, (len(" ".join(lines).split()) // 400) + 1)
+        table_lines = []
         for row in t.rows:
             r_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
             if r_text:
-                lines.append(r_text)
-
-    extracted_text = "\n".join(lines)
-    images = []
-    img_count = 0
+                table_lines.append(r_text)
+        if table_lines:
+            t_text = "\n".join(table_lines)
+            lines.append(t_text)
+            t_start = current_char
+            t_end = current_char + len(t_text)
+            spans.append({
+                "page_number": approx_page,
+                "section_label": f"table_{t_idx + 1}",
+                "heading_hint": f"Table {t_idx + 1}",
+                "text": t_text,
+                "char_start": t_start,
+                "char_end": t_end,
+            })
+            current_char = t_end + 1
 
     for rel in doc.part.rels.values():
         if "image" in rel.target_ref:
@@ -122,24 +156,66 @@ def parse_docx(file_bytes: bytes) -> tuple[str, list[dict]]:
                 img_bytes = img_part.blob
                 mime_type = getattr(img_part, "content_type", "image/png")
                 img_meta = _save_image_bytes(img_bytes, mime_type, img_count)
+                img_meta["page_number"] = 1
                 images.append(img_meta)
                 img_count += 1
             except Exception:
                 pass
 
-    return extracted_text, images
+    extracted_text = "\n\n".join(lines)
+    pages = [{"page_number": 1, "text": extracted_text, "char_start": 0, "char_end": len(extracted_text)}]
+    return extracted_text, images, spans, pages
 
 
-def parse_pdf(file_bytes: bytes) -> tuple[str, list[dict]]:
+def parse_docx(file_bytes: bytes) -> tuple[str, list[dict]]:
+    text, images, _, _ = parse_docx_structured(file_bytes)
+    return text, images
+
+
+def parse_pdf_structured(file_bytes: bytes) -> tuple[str, list[dict], list[dict], list[dict]]:
+    """Parse PDF preserving exact page numbers, block offsets, and embedded images."""
     doc = pymupdf.open(stream=file_bytes, filetype="pdf")
     lines = []
     images = []
+    spans = []
+    pages = []
     img_count = 0
+    current_char = 0
 
-    for page in doc:
-        page_text = page.get_text()
-        if page_text.strip():
-            lines.append(page_text.strip())
+    for p_idx, page in enumerate(doc):
+        p_num = p_idx + 1
+        page_text = page.get_text() or ""
+        clean_page_text = page_text.strip()
+        p_start = current_char
+        p_end = current_char + len(clean_page_text)
+
+        pages.append({
+            "page_number": p_num,
+            "text": clean_page_text,
+            "char_start": p_start,
+            "char_end": p_end,
+        })
+
+        if clean_page_text:
+            lines.append(clean_page_text)
+            p_blocks = [b.strip() for b in clean_page_text.split("\n\n") if b.strip()]
+            if not p_blocks:
+                p_blocks = [clean_page_text]
+            offset = p_start
+            for b_idx, block in enumerate(p_blocks):
+                b_start = offset
+                b_end = offset + len(block)
+                first_line = block.splitlines()[0][:60].strip() if block.splitlines() else ""
+                spans.append({
+                    "page_number": p_num,
+                    "section_label": f"page_{p_num}_block_{b_idx + 1}",
+                    "heading_hint": first_line,
+                    "text": block,
+                    "char_start": b_start,
+                    "char_end": b_end,
+                })
+                offset = b_end + 2
+            current_char = p_end + 2
 
         try:
             image_list = page.get_images(full=True)
@@ -150,39 +226,73 @@ def parse_pdf(file_bytes: bytes) -> tuple[str, list[dict]]:
                 img_ext = base_image["ext"]
                 mime_type = "image/jpeg" if img_ext.lower() in ("jpg", "jpeg") else f"image/{img_ext.lower()}"
                 img_meta = _save_image_bytes(img_bytes, mime_type, img_count)
+                img_meta["page_number"] = p_num
                 images.append(img_meta)
                 img_count += 1
         except Exception:
             pass
 
-    extracted_text = "\n".join(lines)
-    return extracted_text, images
+    extracted_text = "\n\n".join(lines)
+    return extracted_text, images, spans, pages
 
 
-def parse_txt(file_bytes: bytes) -> tuple[str, list[dict]]:
+def parse_pdf(file_bytes: bytes) -> tuple[str, list[dict]]:
+    text, images, _, _ = parse_pdf_structured(file_bytes)
+    return text, images
+
+
+def parse_txt_structured(file_bytes: bytes) -> tuple[str, list[dict], list[dict], list[dict]]:
     try:
         text = file_bytes.decode("utf-8")
     except UnicodeDecodeError:
         text = file_bytes.decode("latin-1", errors="replace")
-    return text, []
+
+    paras = [p.strip() for p in text.split("\n\n") if p.strip()]
+    if not paras:
+        paras = [p.strip() for p in text.splitlines() if p.strip()]
+
+    spans = []
+    current_char = 0
+    for idx, p in enumerate(paras):
+        approx_page = max(1, (len(" ".join(paras[:idx]).split()) // 400) + 1)
+        p_start = current_char
+        p_end = current_char + len(p)
+        first_line = p.splitlines()[0][:60].strip() if p.splitlines() else ""
+        spans.append({
+            "page_number": approx_page,
+            "section_label": f"section_{idx + 1}",
+            "heading_hint": first_line,
+            "text": p,
+            "char_start": p_start,
+            "char_end": p_end,
+        })
+        current_char = p_end + 2
+
+    pages = [{"page_number": 1, "text": text, "char_start": 0, "char_end": len(text)}]
+    return text, [], spans, pages
+
+
+def parse_txt(file_bytes: bytes) -> tuple[str, list[dict]]:
+    text, images, _, _ = parse_txt_structured(file_bytes)
+    return text, images
 
 
 def parse_event_file(file_bytes: bytes, filename: str) -> dict:
     """
     Main file parsing pipeline. Accepts .docx, .pdf, or .txt file bytes.
-    Returns dict containing: extracted_notes, detected_event_name, detected_event_date, extracted_images.
+    Returns dict containing: extracted_notes, detected_event_name, detected_event_date,
+    extracted_images, spans, and pages with provenance metadata.
     """
     ext = os.path.splitext(filename)[1].lower()
 
     if ext in (".docx", ".doc"):
-        text, images = parse_docx(file_bytes)
+        text, images, spans, pages = parse_docx_structured(file_bytes)
     elif ext == ".pdf":
-        text, images = parse_pdf(file_bytes)
+        text, images, spans, pages = parse_pdf_structured(file_bytes)
     elif ext in (".txt", ".md", ".log"):
-        text, images = parse_txt(file_bytes)
+        text, images, spans, pages = parse_txt_structured(file_bytes)
     else:
-        # Fallback parsing attempt as text
-        text, images = parse_txt(file_bytes)
+        text, images, spans, pages = parse_txt_structured(file_bytes)
 
     detected_name, detected_date = detect_event_info(text)
 
@@ -191,6 +301,8 @@ def parse_event_file(file_bytes: bytes, filename: str) -> dict:
         "detected_event_name": detected_name,
         "detected_event_date": detected_date,
         "extracted_images": images,
+        "spans": spans,
+        "pages": pages,
     }
 
 

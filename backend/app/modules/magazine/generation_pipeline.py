@@ -439,6 +439,9 @@ Return ONLY valid structured output conforming to the requested schema."""
         cover_cfg = self.layout_planner.template.page_types.get("cover")
         top_headline = structured_stories[0][1].headline if structured_stories else issue_title
 
+        vol_str = f"VOLUME {getattr(self, 'volume', 1) or 1}"
+        iss_str = f"ISSUE {getattr(self, 'issue_number', 1) or 1}"
+        ay_str = f"ACADEMIC YEAR {getattr(self, 'academic_year', '2026-2027') or '2026-2027'}"
         pages.append({
             "page_number": page_num,
             "page_type": "cover",
@@ -447,7 +450,7 @@ Return ONLY valid structured output conforming to the requested schema."""
             "headline": issue_title.upper(),
             "subheadline": f"Official Digest • {department}",
             "section_label": "COLLEGE COMPENDIUM",
-            "metadata": "VOLUME 30 • ISSUE 1 | ACADEMIC YEAR 2026-2027",
+            "metadata": f"{vol_str} • {iss_str} | {ay_str}",
             "body": f"Featuring: {top_headline}\nAnnual review of technical projects, student hackathons, and research achievements at {department}.",
             "attached_photos": [],
             "captions": [],

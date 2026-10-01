@@ -158,6 +158,9 @@ class SIETDefaultV1LayoutPlanner:
         issue_title: str,
         department: str,
         structured_stories: List[Tuple[Dict[str, Any], StructuredMagazineStoryContent]],
+        volume: Optional[int] = None,
+        issue_number: Optional[int] = None,
+        academic_year: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Plans all pages for an issue: Cover -> Contents -> Stories -> Closing.
@@ -172,13 +175,18 @@ class SIETDefaultV1LayoutPlanner:
             hero_photo = [structured_stories[0][0]["attached_photos"][0]]
 
         top_story_headline = structured_stories[0][1].headline if structured_stories else issue_title
+        vol_label = f"VOLUME {volume}" if volume else "VOLUME 1"
+        iss_label = f"ISSUE {issue_number}" if issue_number else "ISSUE 1"
+        ay_label = f"ACADEMIC YEAR {academic_year}" if academic_year else "ACADEMIC YEAR 2026-2027"
+        cover_meta = f"{vol_label} • {iss_label} | {ay_label}"
+
         planned_pages.append({
             "page_number": page_num,
             "page_type": PageType.COVER.value,
             "headline": issue_title.upper(),
             "subheadline": f"{department.upper()} • ANNUAL COMPENDIUM",
             "body": f"Featuring: {top_story_headline}",
-            "metadata": "VOLUME 30 • ISSUE 1 | ACADEMIC YEAR 2026-2027",
+            "metadata": cover_meta,
             "attached_photos": hero_photo,
             "captions": [],
             "page_config": cover_cfg,

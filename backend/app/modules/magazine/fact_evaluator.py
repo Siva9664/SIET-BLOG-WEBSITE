@@ -185,3 +185,142 @@ def gate_extracted_facts(
             dropped.append(fact_with_eval)
 
     return accepted, dropped
+
+
+def _extract_dates(text: str) -> set[str]:
+    """Extracts date strings and normalized month-day-year tuples from text."""
+    date_patterns = [
+        r"\b\d{1,2}(?:st|nd|rd|th)?\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}\b",
+        r"\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}\b",
+        r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b",
+        r"\b\d{1,2}[-/]\d{1,2}[-/]\d{4}\b",
+    ]
+    dates = set()
+    for pat in date_patterns:
+        for m in re.finditer(pat, text, re.IGNORECASE):
+            raw = m.group(0).strip()
+            # Clean ordinals
+            cleaned = re.sub(r"(\d+)(st|nd|rd|th)", r"\1", raw, flags=re.IGNORECASE)
+            dates.add(cleaned.lower())
+    return dates
+
+
+def verify_magazine_content_against_sources(
+    structured_content: Dict[str, Any],
+    source_text: str,
+    source_chunks: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """
+    Comprehensive Factual Verification of generated magazine content against source passages.
+    Checks:
+    - Date fidelity (e.g. source 15 August 2026 vs generated 20 August 2026)
+    - Award & achievement grounding (never invents awards when absent from source)
+    - Numeric consistency (participant counts, funding, prize amounts)
+    - Named entities (recipients, speakers, departments)
+    - Provenance source page tracking
+
+    Returns validation dict with status ('PASS' | 'REVIEW_REQUIRED'), confidence, source pages, and issues.
+    """
+    unsupported_claims: List[str] = []
+    issues: List[str] = []
+    source_pages: Set[int] = set()
+
+    norm_source = _normalize(source_text)
+    source_numbers = _extract_numbers(source_text)
+    source_nouns = _extract_proper_nouns(source_text)
+    source_dates = _extract_dates(source_text)
+
+    # Collect source pages from chunks
+    if source_chunks:
+        for sc in source_chunks:
+            p = sc.get("page_number")
+            if p:
+                source_pages.add(int(p))
+    if not source_pages:
+        source_pages.add(1)
+
+    # 1. Date Verification across generated events, writeup, and metadata
+    content_dates: Set[str] = set()
+    writeup = str(structured_content.get("writeup_text", "") or structured_content.get("writeup", ""))
+    content_dates.update(_extract_dates(writeup))
+
+    for ev in structured_content.get("events", []):
+        if isinstance(ev, dict):
+            ev_date = str(ev.get("date", "")).strip()
+            if ev_date:
+                content_dates.update(_extract_dates(ev_date) or {ev_date.lower()})
+
+    for d in content_dates:
+        # Check if date appears in source
+        if d not in source_dates and not any(d in sd or sd in d for sd in source_dates):
+            # Also check if numeric day/year appear in source numbers
+            day_matches = [n for n in _extract_numbers(d) if len(n) <= 2 and int(n) <= 31]
+            if day_matches and not all(dm in source_numbers for dm in day_matches):
+                msg = f"Date mismatch: generated date '{d}' is not grounded in source document."
+                unsupported_claims.append(msg)
+                issues.append(msg)
+
+    # 2. Award / Achievement Grounding Check
+    # Verify that awards are not fabricated when source lacks award information
+    award_keywords = ["award", "prize", "winner", "place", "won", "honor", "medal", "trophy", "cash prize", "fellowship", "grant"]
+    source_has_awards = any(k in norm_source for k in award_keywords)
+
+    achievements = structured_content.get("achievements", [])
+    if achievements:
+        if not source_has_awards:
+            msg = "Unsupported awards: generated magazine contains achievements/awards, but source document contains zero award information."
+            unsupported_claims.append(msg)
+            issues.append(msg)
+        else:
+            for ach in achievements:
+                if isinstance(ach, dict):
+                    ach_title = str(ach.get("title", ""))
+                    ach_desc = str(ach.get("description", ""))
+                    ach_text = f"{ach_title} {ach_desc}"
+                    # Check recipient if present
+                    recip = str(ach.get("recipient", "")).strip()
+                    if recip and recip.lower() not in norm_source:
+                        issues.append(f"Achievement recipient '{recip}' not found in source text.")
+
+    # 3. Numeric Integrity Check (participant counts, metrics)
+    content_numbers = _extract_numbers(writeup)
+    suspicious_numbers = [
+        n for n in content_numbers
+        if n not in source_numbers and int(float(n)) not in (1, 2, 3, 4, 5, 2026, 2027)
+    ]
+    if len(suspicious_numbers) > 3:
+        msg = f"Generated writeup introduces unsupported numerical claims: {suspicious_numbers[:4]}."
+        unsupported_claims.append(msg)
+        issues.append(msg)
+
+    # 4. Project Grounding Check
+    for proj in structured_content.get("projects", []):
+        if isinstance(proj, dict):
+            p_title = str(proj.get("title", "")).strip()
+            # If project title has distinct words, check if they exist in source
+            p_words = [w.lower() for w in re.findall(r"\b[A-Za-z0-9]+\b", p_title) if len(w) > 3]
+            if p_words:
+                overlap = sum(1 for w in p_words if w in norm_source)
+                if overlap == 0:
+                    msg = f"Project '{p_title}' terms not found in source text."
+                    issues.append(msg)
+
+    # 5. Determine Final Status and Confidence
+    if unsupported_claims:
+        status = "REVIEW_REQUIRED"
+        confidence = max(0.40, round(1.0 - (len(unsupported_claims) * 0.25) - (len(issues) * 0.05), 2))
+    elif issues:
+        status = "PASS" if len(issues) <= 1 else "REVIEW_REQUIRED"
+        confidence = max(0.65, round(0.95 - (len(issues) * 0.08), 2))
+    else:
+        status = "PASS"
+        confidence = 0.96
+
+    return {
+        "status": status,
+        "confidence": confidence,
+        "source_pages": sorted(list(source_pages)),
+        "unsupported_claims": unsupported_claims,
+        "issues": issues,
+    }
+

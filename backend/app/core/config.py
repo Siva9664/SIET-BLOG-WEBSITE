@@ -100,14 +100,16 @@ class Settings(BaseSettings):
     REFRESH_COOKIE_NAME: str = "refresh_token"
     REQUEST_TIMEOUT: int = 30
 
-    MAGAZINE_LLM_PROVIDER: str = "auto"
+    MAGAZINE_LLM_PROVIDER: str = "ollama"
     MAGAZINE_LLM_MODEL: str = ""
     MAGAZINE_OLLAMA_BASE_URL: str = "http://localhost:11434"
-    MAGAZINE_OLLAMA_MODEL: str = "qwen3:4b"
+    MAGAZINE_OLLAMA_MODEL: str = "qwen3:14b"
     MAGAZINE_GEMINI_MODEL: str = "gemini-1.5-flash"
     MAGAZINE_OPENAI_MODEL: str = "gpt-3.5-turbo"
-    MAGAZINE_LLM_TIMEOUT_SECONDS: float = 180.0
-    MAGAZINE_LLM_TEMPERATURE: float = 0.2
+    MAGAZINE_LLM_TIMEOUT_SECONDS: float = 120.0
+    MAGAZINE_LLM_TEMPERATURE: float = 0.1
+    MAGAZINE_LLM_MAX_RETRIES: int = 2
+    MAGAZINE_OLLAMA_CONTEXT_SIZE: int = 8192
     MAGAZINE_VISION_MODEL: str = "google/siglip-base-patch16-224"
     MAGAZINE_VISION_DEVICE: str = "cpu"
     MAGAZINE_PHOTO_RELEVANCE_WEIGHT: float = 0.70

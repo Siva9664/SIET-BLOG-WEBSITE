@@ -41,6 +41,7 @@ class LLMProviderConfig:
     timeout_seconds: float
     temperature: float
     max_retries: int = 2
+    context_size: int = 8192
 
 
 def _env(name: str, default: str = "") -> str:
@@ -97,20 +98,23 @@ def get_llm_config(
 ) -> LLMProviderConfig:
     """Resolves provider/model settings from environment variables."""
     resolved_provider = _provider_from_env(provider)
-    generic_model = _env("MAGAZINE_LLM_MODEL")
+    generic_model = _env("MAGAZINE_LLM_MODEL") or getattr(settings, "MAGAZINE_LLM_MODEL", "")
 
     if resolved_provider == "ollama":
         model = (
             _env("MAGAZINE_OLLAMA_MODEL")
+            or getattr(settings, "MAGAZINE_OLLAMA_MODEL", "")
             or _env("OLLAMA_MODEL")
+            or getattr(settings, "OLLAMA_MODEL", "")
             or (generic_model if generic_model and not _is_gemini_model(generic_model) else "")
             or (model_name if model_name and not _is_gemini_model(model_name) else "")
-            or getattr(settings, "MAGAZINE_OLLAMA_MODEL", "")
-            or "qwen3:4b"
+            or "qwen3:14b"
         )
         base_url = (
             _env("MAGAZINE_OLLAMA_BASE_URL")
+            or getattr(settings, "MAGAZINE_OLLAMA_BASE_URL", "")
             or _env("OLLAMA_BASE_URL")
+            or getattr(settings, "OLLAMA_BASE_URL", "")
             or "http://localhost:11434"
         )
     elif resolved_provider == "gemini":
@@ -130,18 +134,31 @@ def get_llm_config(
         )
         base_url = _env("OPENAI_BASE_URL", "https://api.openai.com/v1")
     else:
-        model = model_name or generic_model or "qwen3:8b"
+        model = model_name or generic_model or "qwen3:14b"
         base_url = ""
 
     return LLMProviderConfig(
         provider=resolved_provider,
         model=model,
         base_url=base_url.rstrip("/"),
-        timeout_seconds=_configured_float("MAGAZINE_LLM_TIMEOUT_SECONDS", 45.0),
+        timeout_seconds=_configured_float(
+            "MAGAZINE_LLM_TIMEOUT_SECONDS",
+            getattr(settings, "MAGAZINE_LLM_TIMEOUT_SECONDS", 120.0),
+        ),
         temperature=temperature
         if temperature is not None
-        else _configured_float("MAGAZINE_LLM_TEMPERATURE", 0.2),
-        max_retries=_configured_int("MAGAZINE_LLM_MAX_RETRIES", 2),
+        else _configured_float(
+            "MAGAZINE_LLM_TEMPERATURE",
+            getattr(settings, "MAGAZINE_LLM_TEMPERATURE", 0.1),
+        ),
+        max_retries=_configured_int(
+            "MAGAZINE_LLM_MAX_RETRIES",
+            getattr(settings, "MAGAZINE_LLM_MAX_RETRIES", 2),
+        ),
+        context_size=_configured_int(
+            "MAGAZINE_OLLAMA_CONTEXT_SIZE",
+            getattr(settings, "MAGAZINE_OLLAMA_CONTEXT_SIZE", 8192),
+        ),
     )
 
 
@@ -211,30 +228,64 @@ class OllamaProvider(BaseLLMProvider):
         except Exception:
             return False
 
+    async def check_model_availability(self) -> tuple[bool, str]:
+        """Verify that the configured model is installed and accessible in Ollama."""
+        try:
+            async with httpx.AsyncClient(timeout=4.0) as client:
+                res = await client.get(f"{self.config.base_url}/api/tags")
+                if res.status_code != 200:
+                    return False, f"Ollama service at {self.config.base_url} returned HTTP {res.status_code}."
+                data = res.json()
+                models = [m.get("name", "").lower() for m in data.get("models", [])]
+                target = self.config.model.lower()
+                target_base = target.split(":")[0]
+                matched = any(
+                    target == m
+                    or m.startswith(f"{target}:")
+                    or (":" not in target and m.split(":")[0] == target_base)
+                    for m in models
+                )
+                if not matched:
+                    avail = ", ".join(models) or "none"
+                    return False, (
+                        f"Required magazine model '{self.config.model}' is not installed in Ollama at {self.config.base_url}. "
+                        f"Available models: [{avail}]. Please run: `ollama pull {self.config.model}`."
+                    )
+                return True, ""
+        except Exception as e:
+            return False, f"Could not connect to Ollama service at {self.config.base_url}: {e}"
+
     async def generate(
         self,
         prompt: str,
         response_format: LLMResponseFormat = "text",
         temperature: float | None = None,
         json_schema: dict[str, Any] | None = None,
+        system_prompt: str | None = None,
     ) -> str:
         temp = self.config.temperature if temperature is None else temperature
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        elif response_format == "json":
+            messages.append({
+                "role": "system",
+                "content": "Return only strict JSON. Do not include markdown blocks or commentary.",
+            })
+        messages.append({"role": "user", "content": prompt})
+
         payload: dict[str, Any] = {
             "model": self.config.model,
             "stream": False,
-            "messages": [{"role": "user", "content": prompt}],
-            "options": {"temperature": temp},
+            "messages": messages,
+            "options": {
+                "temperature": temp,
+                "num_ctx": self.config.context_size,
+            },
         }
 
         if response_format == "json":
             payload["format"] = json_schema or "json"
-            payload["messages"].insert(
-                0,
-                {
-                    "role": "system",
-                    "content": "Return only strict JSON. Do not include markdown blocks or commentary.",
-                },
-            )
 
         endpoint = f"{self.config.base_url}/api/chat"
         retries = self.config.max_retries
@@ -488,6 +539,8 @@ async def call_llm(
     response_format: LLMResponseFormat = "text",
     temperature: float | None = None,
     json_schema: dict[str, Any] | None = None,
+    system_prompt: str | None = None,
+    max_tokens: int | None = None,
 ) -> str:
     """
     Calls the configured magazine LLM provider via the provider abstraction.
@@ -507,12 +560,18 @@ async def call_llm(
             model_name=model_name,
             temperature=temperature,
         )
-        return await p.generate(
-            prompt=prompt,
-            response_format=response_format,
-            temperature=temperature,
-            json_schema=json_schema,
-        )
+        # Check if provider supports system_prompt kwarg
+        import inspect
+        sig = inspect.signature(p.generate)
+        kwargs: dict[str, Any] = {
+            "prompt": prompt,
+            "response_format": response_format,
+            "temperature": temperature,
+            "json_schema": json_schema,
+        }
+        if "system_prompt" in sig.parameters:
+            kwargs["system_prompt"] = system_prompt
+        return await p.generate(**kwargs)
     except Exception as error:
         logger.warning(
             "Magazine LLM provider '%s' failed: %s. Using fallback.",
@@ -529,8 +588,11 @@ async def call_llm_json(
     provider: str | None = None,
     temperature: float | None = 0.0,
     json_schema: dict[str, Any] | None = None,
+    system_prompt: str | None = None,
+    max_tokens: int | None = None,
+    repair_on_failure: bool = True,
 ) -> Any:
-    """Calls the configured provider and parses a strict JSON response."""
+    """Calls the configured provider and parses a strict JSON response, with repair on failure."""
     response_text = await call_llm(
         prompt,
         model_name=model_name,
@@ -538,11 +600,33 @@ async def call_llm_json(
         response_format="json",
         temperature=temperature,
         json_schema=json_schema,
+        system_prompt=system_prompt,
+        max_tokens=max_tokens,
     )
     if not response_text:
         return None
     try:
         return json.loads(extract_json_payload(response_text))
-    except json.JSONDecodeError as error:
+    except (json.JSONDecodeError, Exception) as error:
         logger.warning("Magazine LLM JSON parse failed: %s", error)
+        if repair_on_failure and response_text.strip():
+            repair_prompt = (
+                f"The following output was expected to be valid JSON, but had a syntax error:\n"
+                f"```\n{response_text[:3000]}\n```\n"
+                f"Error: {error}\n"
+                f"Please fix and output ONLY the valid JSON object, with no commentary."
+            )
+            repaired_text = await call_llm(
+                repair_prompt,
+                model_name=model_name,
+                provider=provider,
+                response_format="json",
+                temperature=0.0,
+                system_prompt="You are a strict JSON repair tool. Output only the corrected JSON.",
+            )
+            if repaired_text:
+                try:
+                    return json.loads(extract_json_payload(repaired_text))
+                except Exception as repair_err:
+                    logger.warning("Magazine LLM JSON repair retry also failed: %s", repair_err)
         return None
