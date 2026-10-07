@@ -2,6 +2,22 @@ import type { Achievement, Article, Domain, MagazineIssue, NewsItem, Paginated, 
 
 const BASE = `${process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000"}/api/v1`;
 
+const API_ORIGIN = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
+
+/**
+ * Resolve a backend asset reference (e.g. `/uploads/magazines/x.png`,
+ * `uploads/magazines/x.png`, or an absolute URL) into a loadable URL.
+ * Absolute / data: / blob: URLs pass through untouched; backend-relative
+ * paths are prefixed with the API origin so images, PDFs and covers load
+ * even when the `/uploads` rewrite is bypassed (SSR, downloads, meta tags).
+ */
+export function assetUrl(u: string | null | undefined): string {
+  if (!u) return "";
+  if (/^(https?:)?\/\//i.test(u) || u.startsWith("data:") || u.startsWith("blob:")) return u;
+  const path = u.startsWith("/") ? u : `/${u}`;
+  return `${API_ORIGIN}${path}`;
+}
+
 let currentUserPromise: Promise<User | null> | null = null;
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -191,14 +207,14 @@ const normalizeMagazine = (item: any): MagazineIssue => ({
   status: item.status ?? "published",
   failureReason: item.failureReason ?? item.failure_reason,
   pageCount: Number(item.pageCount ?? item.page_count ?? 0),
-  pdfUrl: item.pdfUrl ?? item.pdf_url ?? item.certificateUrl,
-  coverImageUrl: item.coverImageUrl ?? item.cover_image_url ?? (Array.isArray(item.gallery) && item.gallery.length > 0 ? item.gallery[0] : undefined),
+  pdfUrl: assetUrl(item.pdfUrl ?? item.pdf_url ?? item.certificateUrl),
+  coverImageUrl: assetUrl(item.coverImageUrl ?? item.cover_image_url ?? (Array.isArray(item.gallery) && item.gallery.length > 0 ? item.gallery[0] : undefined)),
   issueDate: item.issueDate ?? item.publishedAt ?? item.created_at ?? new Date().toISOString(),
   pages: Array.isArray(item.pages)
     ? item.pages.map((p: any) => ({
       id: String(p.id ?? ""),
       pageNumber: Number(p.pageNumber ?? p.page_number ?? 1),
-      imageUrl: p.imageUrl ?? p.image_url ?? "",
+      imageUrl: assetUrl(p.imageUrl ?? p.image_url ?? ""),
       extractedText: p.extractedText ?? p.extracted_text ?? "",
     }))
     : [],

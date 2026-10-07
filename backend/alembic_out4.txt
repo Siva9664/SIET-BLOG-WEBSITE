@@ -1,0 +1,15 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> bb2d5bda122f, Initial migration
+INFO  [alembic.runtime.migration] Running upgrade bb2d5bda122f -> 7167703dce38, Phase 2
+INFO  [alembic.runtime.migration] Running upgrade 7167703dce38 -> a8f3b2e91c4d, add source_url and source_name to news
+INFO  [alembic.runtime.migration] Running upgrade a8f3b2e91c4d -> c9d2e1f4a8b7, create site_settings table and seed default row
+INFO  [alembic.runtime.migration] Running upgrade c9d2e1f4a8b7 -> 2801f999c755, add_documents_and_template_engine_tables
+INFO  [alembic.runtime.migration] Running upgrade 2801f999c755 -> e4b4ce451d00, add_example_outputs_to_magazine_templates
+INFO  [alembic.runtime.migration] Running upgrade e4b4ce451d00 -> 901bb0997d46, add_editorial_plan_and_orchestrator_score
+INFO  [alembic.runtime.migration] Running upgrade 901bb0997d46 -> 797e7d74a93d, create_template_embeddings_table
+INFO  [alembic.runtime.migration] Running upgrade 797e7d74a93d -> 9bb21e575d87, add_department_and_multi_template_support
+INFO  [alembic.runtime.migration] Running upgrade 9bb21e575d87 -> b1c2d3e4f5a6, add_template_metadata_to_magazine_templates
+INFO  [alembic.runtime.migration] Running upgrade b1c2d3e4f5a6 -> c1a2b3d4e5f6, add_lab_scoped_admin_and_template_ownership
+INFO  [alembic.runtime.migration] Running upgrade c1a2b3d4e5f6 -> 35b9713d0338, add_missing_magazine_fields
+status=0

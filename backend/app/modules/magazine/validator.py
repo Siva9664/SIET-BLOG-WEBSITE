@@ -277,14 +277,19 @@ def _check_missing_assets(
 
     regions = getattr(page_plan, "regions", []) or []
     planned_images_count = 0
+    referenced_asset_count = 0
 
     for r in regions:
         rtype = getattr(r, "type", "")
         asset = getattr(r, "asset", None)
         rid = getattr(r, "region_id", "")
+        # Only regions that actually reference a concrete asset count as
+        # "planned images". A text-only page (or a page where no photograph
+        # was supplied) legitimately has zero image regions with assets.
         if rtype == "image" or "image" in rid or "photo" in rid or asset:
-            planned_images_count += 1
             if asset:
+                referenced_asset_count += 1
+                planned_images_count += 1
                 from app.modules.magazine.renderer import _resolve_image_path
                 resolved = _resolve_image_path(asset)
                 if not resolved:
@@ -293,9 +298,11 @@ def _check_missing_assets(
                     )
 
     rendered_images = page.get_images()
+    # Only complain about zero embedded images when the page actually
+    # referenced concrete assets that should have been rendered.
     if planned_images_count > 0 and len(rendered_images) == 0:
         issues.append(
-            f"Missing assets: page planned {planned_images_count} images, but 0 images were embedded on the rendered page."
+            f"Missing assets: page planned {planned_images_count} image(s) with concrete asset references, but 0 images were embedded on the rendered page."
         )
 
     return issues

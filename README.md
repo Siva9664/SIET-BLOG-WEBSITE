@@ -103,7 +103,7 @@ npm install
 ### 2. Configure Environment Variables
 Create `.env.local` in the root directory:
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_API_BASE=http://localhost:8000
 ```
 
 ### 3. Run Development Server

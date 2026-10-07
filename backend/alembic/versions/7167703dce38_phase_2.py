@@ -215,8 +215,11 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_magazine_project_links_id'), 'magazine_project_links', ['id'], unique=False)
-    op.add_column('users', sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True))
-    op.add_column('users', sa.Column('version', sa.Integer(), server_default='1', nullable=False))
+    # Use ADD COLUMN IF NOT EXISTS so a fresh `alembic upgrade head` works even when
+    # the users table (and its deleted_at/version columns) already exist from the
+    # initial migration.
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1")
     # ### end Alembic commands ###
 
 

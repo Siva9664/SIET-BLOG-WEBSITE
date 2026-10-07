@@ -347,7 +347,159 @@ def test_clean_service_boundary_renderer_adapter():
 
 
 # ============================================================================
-# 8. REST API Endpoint (/api/v1/magazine/layout/plan)
+# 9. Asset Name Fallback Chain (file_path -> url -> filename -> id)
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_asset_name_built_from_file_path(sample_article):
+    """
+    Verifies that the layout planner builds image asset names using the
+    fallback chain: file_path, then url, then filename, then id.
+    When file_path is provided, its basename must be used as the asset name.
+    """
+    photos = [
+        {
+            "id": "photo_17.jpg",
+            "file_path": "/var/uploads/magazines/robotics_photo.jpg",
+            "url": "uploads/magazine/photo_17.jpg",
+            "filename": "photo_17.jpg",
+            "aspect_ratio": 1.50,
+            "orientation": "landscape",
+            "caption": "Students demonstrating the prototype.",
+        },
+    ]
+
+    plan, validation = await plan_page_layout(
+        content=sample_article,
+        department_or_lab="AI Lab",
+        selected_template="AI_LAB_03",
+        available_images=photos,
+        use_llm=False,
+    )
+
+    hero = next((r for r in plan.regions if r.region_id == "hero_image"), None)
+    assert hero is not None
+    assert hero.type == "image"
+    # file_path basename wins over url/filename/id
+    assert hero.asset == "robotics_photo.jpg"
+
+
+@pytest.mark.asyncio
+async def test_asset_name_falls_back_to_url_when_no_file_path(sample_article):
+    """
+    When file_path is absent, the asset name must be derived from the url
+    basename (next item in the fallback chain).
+    """
+    photos = [
+        {
+            "id": "photo_17.jpg",
+            "url": "uploads/magazine/robotics_photo.jpg",
+            "filename": "photo_17.jpg",
+            "aspect_ratio": 1.50,
+            "orientation": "landscape",
+            "caption": "Students demonstrating the prototype.",
+        },
+    ]
+
+    plan, validation = await plan_page_layout(
+        content=sample_article,
+        department_or_lab="AI Lab",
+        selected_template="AI_LAB_03",
+        available_images=photos,
+        use_llm=False,
+    )
+
+    hero = next((r for r in plan.regions if r.region_id == "hero_image"), None)
+    assert hero is not None
+    assert hero.asset == "robotics_photo.jpg"
+
+
+@pytest.mark.asyncio
+async def test_asset_name_falls_back_to_filename(sample_article):
+    """
+    When both file_path and url are absent, the asset name must be derived
+    from the filename field.
+    """
+    photos = [
+        {
+            "id": "photo_17.jpg",
+            "filename": "robotics_photo.jpg",
+            "aspect_ratio": 1.50,
+            "orientation": "landscape",
+            "caption": "Students demonstrating the prototype.",
+        },
+    ]
+
+    plan, validation = await plan_page_layout(
+        content=sample_article,
+        department_or_lab="AI Lab",
+        selected_template="AI_LAB_03",
+        available_images=photos,
+        use_llm=False,
+    )
+
+    hero = next((r for r in plan.regions if r.region_id == "hero_image"), None)
+    assert hero is not None
+    assert hero.asset == "robotics_photo.jpg"
+
+
+@pytest.mark.asyncio
+async def test_asset_name_falls_back_to_id(sample_article):
+    """
+    When file_path, url, and filename are all absent, the asset name must
+    fall back to the id field.
+    """
+    photos = [
+        {
+            "id": "robotics_photo.jpg",
+            "aspect_ratio": 1.50,
+            "orientation": "landscape",
+            "caption": "Students demonstrating the prototype.",
+        },
+    ]
+
+    plan, validation = await plan_page_layout(
+        content=sample_article,
+        department_or_lab="AI Lab",
+        selected_template="AI_LAB_03",
+        available_images=photos,
+        use_llm=False,
+    )
+
+    hero = next((r for r in plan.regions if r.region_id == "hero_image"), None)
+    assert hero is not None
+    assert hero.asset == "robotics_photo.jpg"
+
+
+@pytest.mark.asyncio
+async def test_asset_name_empty_when_no_photo_fields(sample_article):
+    """
+    When none of file_path/url/filename/id are present, the asset name must
+    be empty (no crash, no hallucinated value).
+    """
+    photos = [
+        {
+            "aspect_ratio": 1.50,
+            "orientation": "landscape",
+            "caption": "Students demonstrating the prototype.",
+        },
+    ]
+
+    plan, validation = await plan_page_layout(
+        content=sample_article,
+        department_or_lab="AI Lab",
+        selected_template="AI_LAB_03",
+        available_images=photos,
+        use_llm=False,
+    )
+
+    hero = next((r for r in plan.regions if r.region_id == "hero_image"), None)
+    assert hero is not None
+    assert hero.asset == ""
+
+
+# ============================================================================
+# 10. REST API Endpoint (/api/v1/magazine/layout/plan)
 # ============================================================================
 
 @pytest.mark.asyncio

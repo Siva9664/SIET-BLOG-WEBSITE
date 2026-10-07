@@ -7,6 +7,10 @@ from app.modules.magazine.template_retriever import (
     seed_template_embeddings,
 )
 
+# The embedding tests need the optional ML extras (requirements-ml.txt);
+# skip gracefully when sentence-transformers is not installed.
+pytest.importorskip("sentence_transformers", reason="ML extras (sentence-transformers) not installed")
+
 
 @pytest.mark.asyncio
 async def test_seed_and_retrieve_template_embeddings():

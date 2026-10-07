@@ -350,7 +350,7 @@ def _create_heuristic_page_plan(
             # Pick best available image matching region orientation or aspect ratio
             chosen_img = None
             for img in available_images:
-                iid = str(img.get("id") or img.get("filename") or img.get("url") or "")
+                iid = str(img.get("file_path") or img.get("url") or img.get("filename") or img.get("id") or "")
                 if iid in used_images:
                     continue
                 # Check aspect ratio tolerance if defined
@@ -370,10 +370,12 @@ def _create_heuristic_page_plan(
             caption = None
 
             if chosen_img:
-                asset_name = os.path.basename(str(chosen_img.get("filename") or chosen_img.get("url") or chosen_img.get("id") or ""))
+                asset_name = os.path.basename(
+                    str(chosen_img.get("file_path") or chosen_img.get("url") or chosen_img.get("filename") or chosen_img.get("id") or "")
+                )
                 aspect_ratio = chosen_img.get("aspect_ratio")
                 caption = chosen_img.get("caption")
-                used_images.add(str(chosen_img.get("id") or asset_name))
+                used_images.add(str(chosen_img.get("file_path") or chosen_img.get("url") or chosen_img.get("filename") or chosen_img.get("id") or asset_name))
 
             planned_regions.append(
                 PlannedRegion(
@@ -473,7 +475,7 @@ async def plan_page_layout(
 
             photos_desc = [
                 {
-                    "asset": os.path.basename(str(p.get("filename") or p.get("url") or p.get("id") or "")),
+                    "asset": os.path.basename(str(p.get("file_path") or p.get("url") or p.get("filename") or p.get("id") or "")),
                     "aspect_ratio": p.get("aspect_ratio"),
                     "orientation": p.get("orientation"),
                     "caption": p.get("caption"),

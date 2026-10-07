@@ -2332,7 +2332,7 @@ async def api_generate_end_to_end_magazine(
                     "id": p_id,
                     "url": f"/uploads/magazines/{p_name}",
                     "file_path": p_path,
-                    "filename": p.filename,
+                    "filename": p_name,
                 })
 
     custom_tmpl_items: List[Dict[str, Any]] = []
@@ -2371,11 +2371,15 @@ async def api_generate_end_to_end_magazine(
 async def api_generate_end_to_end_magazine_json(
     payload: EndToEndMagazineRequest,
     db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_lab_admin),
 ):
     """
     JSON entrypoint for End-to-End AI Magazine Generation Pipeline.
     Accepts raw notes or base64-encoded documents, real photo paths, and parameters.
+    Securely checks lab access and tags the generated magazine with user's lab and creator ID.
     """
+    target_lab_id = await resolve_creation_lab(current_user, payload.lab_id, db)
+
     import base64
     file_bytes: Optional[bytes] = None
     if payload.source_file_base64:
@@ -2384,11 +2388,27 @@ async def api_generate_end_to_end_magazine_json(
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid base64 payload: {e}")
 
+    # Normalize photo dicts: ensure "filename" is set to the saved name (basename of
+    # file_path/url) so the layout planner's asset-name fallback chain resolves correctly.
+    normalized_photos: List[Dict[str, Any]] = []
+    for p in payload.photos:
+        if not isinstance(p, dict):
+            continue
+        photo = dict(p)
+        saved_name = (
+            os.path.basename(str(photo.get("file_path") or ""))
+            or os.path.basename(str(photo.get("url") or ""))
+            or str(photo.get("filename") or photo.get("id") or "")
+        )
+        if saved_name:
+            photo["filename"] = saved_name
+        normalized_photos.append(photo)
+
     result = await run_end_to_end_magazine_pipeline(
         file_bytes=file_bytes,
         filename=payload.source_filename,
         raw_notes=payload.raw_notes,
-        real_photos=payload.photos,
+        real_photos=normalized_photos,
         custom_templates=payload.custom_templates,
         department_or_lab=payload.department_or_lab or "AI & Data Science Lab",
         event_name=payload.event_name,
@@ -2397,6 +2417,8 @@ async def api_generate_end_to_end_magazine_json(
         publish_immediately=payload.publish_immediately,
         use_llm=payload.use_llm,
         max_qc_attempts=payload.max_qc_attempts,
+        lab_id=target_lab_id,
+        created_by_id=current_user.id,
         template_id=payload.template_id,
         db=db,
     )

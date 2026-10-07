@@ -453,11 +453,11 @@ Return ONLY valid JSON matching this schema:
             "toc_summary": toc_summary,
             "projects": [
                 {
-                    "title": f"{active_event_name} Prototype Demonstration",
-                    "description": writeup_text[:180] + "...",
-                    "team": f"{department_or_lab} Cohort",
+                    "title": paragraphs[0][:80] if paragraphs else "",
+                    "description": " ".join(paragraphs[1:])[:240] if len(paragraphs) > 1 else "",
+                    "team": "",
                 }
-            ],
+            ] if paragraphs else [],
             "achievements": [],  # never invent awards; leave empty when the source has none
             "events": (
                 [
@@ -470,10 +470,7 @@ Return ONLY valid JSON matching this schema:
                 if active_event_name and active_event_date
                 else []
             ),
-            "captions": [
-                f"Faculty and students demonstrating prototypes during {active_event_name}.",
-                f"Interactive project evaluation session at {department_or_lab}.",
-            ],
+            "captions": [],
         }
 
     s3_elapsed = time.time() - s3_start
@@ -780,14 +777,6 @@ Return ONLY valid JSON matching this schema:
     qc_reports: List[Dict[str, Any]] = []
     page_recovery_results: List[Dict[str, Any]] = []
 
-    s7_elapsed = time.time() - s7_start
-    await _emit_progress(
-        on_progress, 7, "Rendering pages", "completed",
-        f"Prepared PyMuPDF rendering engine for {len(page_plans)} pages.",
-        elapsed_seconds=s7_elapsed,
-        telemetry_list=telemetry,
-    )
-
     # STAGE 8: Validation and Recovery
     s8_start = time.time()
     await _emit_progress(
@@ -833,6 +822,15 @@ Return ONLY valid JSON matching this schema:
         qc_reports.append(qc_dict)
         page_recovery_results.append(rec_res.model_dump())
 
+    # Rendering is complete: every page has been committed to final_doc.
+    s7_elapsed = time.time() - s7_start
+    await _emit_progress(
+        on_progress, 7, "Rendering pages", "completed",
+        f"Rendered {len(page_plans)} pages into the publication PDF.",
+        elapsed_seconds=s7_elapsed,
+        telemetry_list=telemetry,
+    )
+
     avg_qc_score = sum(r.get("overall_score", 0) for r in qc_reports) / max(len(qc_reports), 1)
 
     s8_elapsed = time.time() - s8_start
@@ -847,6 +845,34 @@ Return ONLY valid JSON matching this schema:
         elapsed_seconds=s8_elapsed,
         telemetry_list=telemetry,
     )
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # QC GATE: A page whose QC is invalid *because of missing assets* must never
+    # be published. Fail loudly (raise) so the caller knows the output is unsafe,
+    # unless the caller explicitly opts into a needs_review draft.
+    # ──────────────────────────────────────────────────────────────────────────
+    missing_asset_pages: List[int] = []
+    for idx, r in enumerate(qc_reports):
+        if not r.get("is_valid"):
+            issues = [str(i).lower() for i in r.get("issues", [])]
+            if any("missing asset" in i or "missing assets" in i for i in issues):
+                missing_asset_pages.append(idx + 1)
+
+    if missing_asset_pages:
+        gate_msg = (
+            f"QC gate failed: pages {missing_asset_pages} are invalid because of missing image assets. "
+            "Refusing to publish a magazine with broken image regions."
+        )
+        logger.error(f"[Pipeline] {gate_msg}")
+        await _emit_progress(
+            on_progress, 9, "Finalizing magazine", "failed",
+            gate_msg,
+            telemetry_list=telemetry,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=gate_msg,
+        )
 
     # ──────────────────────────────────────────────────────────────────────────
     # STAGE 9: Finalizing magazine (PDF, Previews, TOC, DB Publishing)
@@ -950,7 +976,13 @@ Return ONLY valid JSON matching this schema:
                     final_slug = candidate
                     break
                 except IntegrityError as ie:
-                    if "slug" not in str(ie).lower():
+                    # NOTE: str(ie) embeds the failing INSERT statement (which always
+                    # contains the column name "slug"), so inspect the driver error
+                    # itself to decide whether this is genuinely a slug conflict.
+                    # Anything else (e.g. an FK violation on lab_id/created_by_id)
+                    # must be re-raised instead of being retried as a slug clash.
+                    driver_err = str(getattr(ie, "orig", None) or ie).lower()
+                    if "slug" not in driver_err:
                         raise
                     if mag_record in db.identity_map.values():
                         db.expunge(mag_record)
@@ -1025,6 +1057,10 @@ Return ONLY valid JSON matching this schema:
         toc_entries=toc_entries,
         stage_telemetry=telemetry,
         qc_reports=qc_reports,
+        projects=list(structured_content.get("projects") or []),
+        achievements=list(structured_content.get("achievements") or []),
+        events=list(structured_content.get("events") or []),
+        captions=list(structured_content.get("captions") or []),
         overall_quality_score=round(avg_qc_score, 1),
         execution_time_seconds=round(total_elapsed, 2),
         notes=f"[content: {'LLM' if llm_content_used else 'source document (no LLM)'}] Successfully generated {total_pages} publication pages adhering to {department_or_lab} templates and visual QC standards.",

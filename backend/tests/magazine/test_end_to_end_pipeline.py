@@ -32,10 +32,18 @@ from app.modules.magazine.schemas import PipelineProgressStage
 @pytest.fixture
 def temp_assets():
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Create a sample photograph
-        photo_path = os.path.join(tmpdir, "robotics_photo.jpg")
+        # Create a sample photograph and save it BOTH in the temp dir (for the
+        # DOCX embedding) AND in uploads/magazines/ (where the renderer's
+        # _resolve_image_path looks for image files).
+        photo_name = "robotics_photo.jpg"
+        photo_path_tmp = os.path.join(tmpdir, photo_name)
         img = Image.new("RGB", (640, 480), color=(50, 100, 200))
-        img.save(photo_path, format="JPEG")
+        img.save(photo_path_tmp, format="JPEG")
+
+        uploads_mag_dir = os.path.join(os.getcwd(), "uploads", "magazines")
+        os.makedirs(uploads_mag_dir, exist_ok=True)
+        photo_path_uploads = os.path.join(uploads_mag_dir, photo_name)
+        img.save(photo_path_uploads, format="JPEG")
 
         # Create a DOCX document
         doc = docx.Document()
@@ -53,7 +61,7 @@ def temp_assets():
             "Lead researcher Ananya Rao received the Best Innovation Award."
         )
         # Embed photo into docx
-        doc.add_picture(photo_path, width=docx.shared.Inches(3))
+        doc.add_picture(photo_path_tmp, width=docx.shared.Inches(3))
 
         docx_buf = io.BytesIO()
         doc.save(docx_buf)
@@ -75,10 +83,19 @@ def temp_assets():
 
         yield {
             "tmpdir": tmpdir,
-            "photo_path": photo_path,
+            "photo_path": photo_path_uploads,
+            "photo_name": photo_name,
             "docx_bytes": docx_bytes,
             "pdf_bytes": pdf_bytes,
         }
+
+        # Clean up the uploads/magazines copy if it is no longer needed by
+        # any other test (best-effort; never raise on failure).
+        try:
+            if os.path.exists(photo_path_uploads):
+                os.remove(photo_path_uploads)
+        except OSError:
+            pass
 
 
 @pytest.mark.asyncio
@@ -386,6 +403,155 @@ async def test_end_to_end_api_endpoints_chosen_template(temp_assets):
             stage_4_mp = next((s for s in data_mp["stage_telemetry"] if s["stage_number"] == 4), None)
             assert stage_4_mp is not None
             assert stage_4_mp["details"]["chosen_template_id"] == "robotics_lab_autonomous_systems"
+    finally:
+        app.dependency_overrides.pop(require_lab_admin, None)
+
+
+async def _ensure_lab(db_session, lab_id: int, name: str) -> None:
+    """Create the target lab row (if missing) so Magazine.lab_id's FK holds.
+
+    The magazine pipeline inserts with lab_id as a plain foreign key, so the
+    lab must exist in the database before the endpoint is called.
+    """
+    from app.modules.labs.models import Lab
+
+    existing = await db_session.get(Lab, lab_id)
+    if existing is None:
+        db_session.add(
+            Lab(id=lab_id, name=name, code=f"TEST{lab_id}", slug=f"test-lab-{lab_id}")
+        )
+        await db_session.flush()
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_json_endpoint_requires_lab_admin(temp_assets, client, db_session):
+    """
+    Verifies that POST /admin/magazine/generate/end-to-end-json is protected
+    by require_lab_admin and rejects unauthenticated callers (issue #4).
+    """
+    # Ensure no dependency override is active for require_lab_admin
+    from app.shared.auth.dependencies import require_lab_admin
+    app.dependency_overrides.pop(require_lab_admin, None)
+
+    json_payload = {
+        "department_or_lab": "AI Lab",
+        "event_name": "Unauthorized Attempt",
+        "raw_notes": "This should be rejected.",
+        "target_page_budget": 1,
+        "publish_immediately": False,
+        "use_llm": False,
+    }
+    res = await client.post("/api/v1/admin/magazine/generate/end-to-end-json", json=json_payload)
+    assert res.status_code in (401, 403), f"Expected 401/403, got {res.status_code}: {res.text}"
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_json_endpoint_resolves_lab_and_creator(temp_assets, client, db_session):
+    """
+    Verifies that the JSON endpoint resolves the caller's lab via
+    resolve_creation_lab and tags the magazine with lab_id/created_by_id
+    (issue #4), same as the form-based /generate/end-to-end endpoint.
+    """
+    from app.modules.auth.models import User, UserRole
+    from app.shared.auth.dependencies import require_lab_admin
+
+    admin_user = User(
+        id=1,
+        name="Super Admin",
+        email="admin@siet.in",
+        role=UserRole.SUPER_ADMIN.value,
+        is_active=True,
+        is_verified=True,
+    )
+    app.dependency_overrides[require_lab_admin] = lambda: admin_user
+
+    try:
+        await _ensure_lab(db_session, 42, "Robotics Test Lab")
+        json_payload = {
+            "department_or_lab": "Robotics Lab",
+            "event_name": "Lab Resolution Test",
+            "raw_notes": "Autonomous navigation prototype demonstrated at the annual symposium.",
+            "target_page_budget": 2,
+            "publish_immediately": True,
+            "use_llm": False,
+            "lab_id": 42,
+        }
+        res = await client.post("/api/v1/admin/magazine/generate/end-to-end-json", json=json_payload)
+        assert res.status_code == 200, res.text
+        data = res.json()
+        assert data.get("success") is True
+        mag_data = data["data"]
+        assert mag_data["total_pages"] >= 1
+
+        # Verify the magazine was persisted with the resolved lab and creator
+        from app.modules.magazine.models import Magazine
+        from sqlalchemy import select
+
+        stmt = select(Magazine).order_by(Magazine.id.desc()).limit(1)
+        mag = (await db_session.execute(stmt)).scalars().first()
+        assert mag is not None
+        assert mag.lab_id == 42
+        assert mag.created_by_id == 1
+        assert mag.status == "published"
+    finally:
+        app.dependency_overrides.pop(require_lab_admin, None)
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_json_endpoint_sets_photo_filename_to_saved_name(temp_assets, client, db_session):
+    """
+    Verifies that the JSON endpoint normalizes photo dicts so that the
+    'filename' field is set to the saved name (basename of file_path/url),
+    enabling the layout planner's asset-name fallback chain (issue #2).
+    """
+    from app.modules.auth.models import User, UserRole
+    from app.shared.auth.dependencies import require_lab_admin
+
+    admin_user = User(
+        id=1,
+        name="Super Admin",
+        email="admin@siet.in",
+        role=UserRole.SUPER_ADMIN.value,
+        is_active=True,
+        is_verified=True,
+    )
+    app.dependency_overrides[require_lab_admin] = lambda: admin_user
+
+    try:
+        await _ensure_lab(db_session, 7, "IoT Test Lab")
+        json_payload = {
+            "department_or_lab": "IoT Lab",
+            "event_name": "Photo Filename Normalization",
+            "raw_notes": "Smart sensor telemetry units designed and demonstrated by students.",
+            "target_page_budget": 2,
+            "publish_immediately": True,
+            "use_llm": False,
+            "lab_id": 7,
+            "photos": [
+                {
+                    "id": "photo_01",
+                    "file_path": temp_assets["photo_path"],
+                    "url": "/uploads/magazines/robotics_photo.jpg",
+                    "filename": "original_upload.jpg",
+                }
+            ],
+        }
+        res = await client.post("/api/v1/admin/magazine/generate/end-to-end-json", json=json_payload)
+        assert res.status_code == 200, res.text
+        data = res.json()
+        assert data.get("success") is True
+        mag_data = data["data"]
+        assert mag_data["total_pages"] >= 1
+
+        # The magazine must have been created with the photo's saved name
+        from app.modules.magazine.models import Magazine
+        from sqlalchemy import select
+
+        stmt = select(Magazine).order_by(Magazine.id.desc()).limit(1)
+        mag = (await db_session.execute(stmt)).scalars().first()
+        assert mag is not None
+        assert mag.lab_id == 7
+        assert mag.created_by_id == 1
     finally:
         app.dependency_overrides.pop(require_lab_admin, None)
 

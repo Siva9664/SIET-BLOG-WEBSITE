@@ -1,0 +1,249 @@
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> bb2d5bda122f, Initial migration
+INFO  [alembic.runtime.migration] Running upgrade bb2d5bda122f -> 7167703dce38, Phase 2
+INFO  [alembic.runtime.migration] Running upgrade 7167703dce38 -> a8f3b2e91c4d, add source_url and source_name to news
+INFO  [alembic.runtime.migration] Running upgrade a8f3b2e91c4d -> c9d2e1f4a8b7, create site_settings table and seed default row
+INFO  [alembic.runtime.migration] Running upgrade c9d2e1f4a8b7 -> 2801f999c755, add_documents_and_template_engine_tables
+INFO  [alembic.runtime.migration] Running upgrade 2801f999c755 -> e4b4ce451d00, add_example_outputs_to_magazine_templates
+INFO  [alembic.runtime.migration] Running upgrade e4b4ce451d00 -> 901bb0997d46, add_editorial_plan_and_orchestrator_score
+INFO  [alembic.runtime.migration] Running upgrade 901bb0997d46 -> 797e7d74a93d, create_template_embeddings_table
+INFO  [alembic.runtime.migration] Running upgrade 797e7d74a93d -> 9bb21e575d87, add_department_and_multi_template_support
+INFO  [alembic.runtime.migration] Running upgrade 9bb21e575d87 -> b1c2d3e4f5a6, add_template_metadata_to_magazine_templates
+INFO  [alembic.runtime.migration] Running upgrade b1c2d3e4f5a6 -> c1a2b3d4e5f6, add_lab_scoped_admin_and_template_ownership
+INFO  [alembic.runtime.migration] Running upgrade c1a2b3d4e5f6 -> 35b9713d0338, add_missing_magazine_fields
+Traceback (most recent call last):
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 605, in _prepare_and_execute
+    self._rows = deque(await prepared_stmt.fetch(*parameters))
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/asyncpg/prepared_stmt.py", line 177, in fetch
+    data = await self.__bind_execute(args, 0, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/asyncpg/prepared_stmt.py", line 268, in __bind_execute
+    data, status, _ = await self.__do_execute(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda protocol: protocol.bind_execute(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            self._state, args, '', limit, True, timeout))
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/asyncpg/prepared_stmt.py", line 257, in __do_execute
+    return await executor(protocol)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncpg/protocol/protocol.pyx", line 205, in bind_execute
+asyncpg.exceptions.UndefinedColumnError: column "version" of relation "template_pages" does not exist
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1943, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/engine/default.py", line 1180, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 656, in execute
+    await_(self._prepare_and_execute(operation, parameters))
+    ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/util/concurrency.py", line 167, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/util/concurrency.py", line 205, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 618, in _prepare_and_execute
+    self._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 568, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 847, in _handle_exception
+    super()._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/connectors/asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 840, in _handle_exception_no_connection
+    raise translated_error from error
+sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: column "version" of relation "template_pages" does not exist
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/./venv/bin/alembic", line 6, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/config.py", line 1039, in main
+    CommandLine(prog=prog).main(argv=argv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/config.py", line 1029, in main
+    self.run_cmd(cfg, options)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/config.py", line 963, in run_cmd
+    fn(
+    ~~^
+        config,
+        ^^^^^^^
+        *[getattr(options, k, None) for k in positional],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **{k: getattr(options, k, None) for k in kwarg},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/command.py", line 487, in upgrade
+    script.run_env()
+    ~~~~~~~~~~~~~~^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/script/base.py", line 550, in run_env
+    util.load_python_file(self.dir, "env.py")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/util/pyfiles.py", line 114, in load_python_file
+    module = load_module_py(module_id, path)
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/util/pyfiles.py", line 132, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 759, in exec_module
+  File "<frozen importlib._bootstrap>", line 491, in _call_with_frames_removed
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/alembic/env.py", line 112, in <module>
+    run_migrations_online()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/alembic/env.py", line 106, in run_migrations_online
+    asyncio.run(run_async_migrations())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/asyncio/runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/usr/lib/python3.14/asyncio/runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/usr/lib/python3.14/asyncio/base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/alembic/env.py", line 98, in run_async_migrations
+    await connection.run_sync(do_run_migrations)
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/ext/asyncio/engine.py", line 908, in run_sync
+    return await greenlet_spawn(
+           ^^^^^^^^^^^^^^^^^^^^^
+        fn, self._proxied, *arg, _require_await=False, **kw
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/util/concurrency.py", line 212, in greenlet_spawn
+    result = context.switch(value)
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/alembic/env.py", line 82, in do_run_migrations
+    context.run_migrations()
+    ~~~~~~~~~~~~~~~~~~~~~~^^
+  File "<string>", line 8, in run_migrations
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/runtime/environment.py", line 970, in run_migrations
+    self.get_context().run_migrations(**kw)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/runtime/migration.py", line 616, in run_migrations
+    step.migration_fn(**kw)
+    ~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/alembic/versions/35b9713d0338_add_missing_magazine_fields.py", line 266, in upgrade
+    op.drop_column('template_pages', 'version')
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<string>", line 8, in drop_column
+  File "<string>", line 3, in drop_column
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/operations/ops.py", line 2395, in drop_column
+    return operations.invoke(op)
+           ~~~~~~~~~~~~~~~~~^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/operations/base.py", line 448, in invoke
+    return fn(self, operation)
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/operations/toimpl.py", line 99, in drop_column
+    operations.impl.drop_column(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        operation.table_name,
+        ^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+        **operation.kw,
+        ^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/ddl/impl.py", line 404, in drop_column
+    self._exec(
+    ~~~~~~~~~~^
+        base.DropColumn(
+        ^^^^^^^^^^^^^^^^
+            table_name, column, schema=schema, if_exists=if_exists
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        )
+        ^
+    )
+    ^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/alembic/ddl/impl.py", line 252, in _exec
+    return conn.execute(construct, params)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1448, in execute
+    return meth(
+        self,
+        distilled_parameters,
+        execution_options or NO_OPTIONS,
+    )
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/sql/ddl.py", line 203, in _execute_on_connection
+    return connection._execute_ddl(
+           ~~~~~~~~~~~~~~~~~~~~~~~^
+        self, distilled_params, execution_options
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1557, in _execute_ddl
+    ret = self._execute_context(
+        dialect,
+    ...<4 lines>...
+        compiled,
+    )
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1822, in _execute_context
+    return self._exec_single_context(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^
+        dialect, context, statement, parameters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1962, in _exec_single_context
+    self._handle_dbapi_exception(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        e, str_statement, effective_parameters, cursor, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 2332, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py", line 1943, in _exec_single_context
+    self.dialect.do_execute(
+    ~~~~~~~~~~~~~~~~~~~~~~~^
+        cursor, str_statement, effective_parameters, context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/engine/default.py", line 1180, in do_execute
+    cursor.execute(statement, parameters)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 656, in execute
+    await_(self._prepare_and_execute(operation, parameters))
+    ~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/util/concurrency.py", line 167, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/util/concurrency.py", line 205, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 618, in _prepare_and_execute
+    self._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 568, in _handle_exception
+    self._adapt_connection._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 847, in _handle_exception
+    super()._handle_exception(error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/connectors/asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/home/shiva/SIET-BLOG-WEBSITE/backend/venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py", line 840, in _handle_exception_no_connection
+    raise translated_error from error
+sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) column "version" of relation "template_pages" does not exist
+[SQL: ALTER TABLE template_pages DROP COLUMN version]
+(Background on this error at: https://sqlalche.me/e/21/f405)

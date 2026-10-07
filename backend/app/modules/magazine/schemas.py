@@ -425,6 +425,7 @@ class EndToEndMagazineRequest(BaseModel):
     volume: int | None = None
     issue_number: int | None = None
     academic_year: str | None = None
+    lab_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -445,6 +446,12 @@ class EndToEndMagazineResponse(BaseModel):
     factual_verification: dict[str, Any] | None = None
     photo_matching: list[dict[str, Any]] = []
     source_provenance: dict[str, Any] = {}
+    # Grounded editorial structures derived from the source (fallback path
+    # leaves these empty rather than inventing content).
+    projects: list[dict[str, Any]] = []
+    achievements: list[dict[str, Any]] = []
+    events: list[dict[str, Any]] = []
+    captions: list[str] = []
     validation_status: str = "PASS"
     overall_quality_score: float = 0.0
     execution_time_seconds: float = 0.0

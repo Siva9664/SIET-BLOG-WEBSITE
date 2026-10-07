@@ -263,7 +263,10 @@ def upgrade() -> None:
     op.create_index(op.f('ix_template_lab_assignments_id'), 'template_lab_assignments', ['id'], unique=False)
     op.create_unique_constraint('uq_template_lab_assignments_template_lab', 'template_lab_assignments', ['template_id', 'lab_id'])
     op.create_index(op.f('ix_template_pages_id'), 'template_pages', ['id'], unique=False)
-    op.drop_column('template_pages', 'version')
+    # Fresh databases create template_pages WITHOUT a version column
+    # (e4b4ce451d00), while the legacy dev DB still had it. Drop it only
+    # when present so `alembic upgrade head` works on both.
+    op.execute("ALTER TABLE template_pages DROP COLUMN IF EXISTS version")
     op.create_index(op.f('ix_template_regions_id'), 'template_regions', ['id'], unique=False)
     op.add_column('template_versions', sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True))
     op.add_column('template_versions', sa.Column('version', sa.Integer(), server_default='1', nullable=False))
