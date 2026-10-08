@@ -50,6 +50,69 @@ THEME = {
 }
 
 
+def _template_style_source(template_or_data: Any) -> dict:
+    """Collects template color/style keys from every supported metadata shape.
+
+    Supports raw ``style_rules`` dicts, ``template_metadata``/``metadata``
+    wrappers, :class:`TemplateMetadata` dataclasses, and DB-backed records
+    exposing ``style_rules``/``template_metadata`` attributes, so the fallback
+    layout honours the chosen template instead of always using defaults.
+    """
+    merged: dict[str, Any] = {}
+    candidates: list[Any] = []
+
+    def _push(value: Any) -> None:
+        if value is not None:
+            candidates.append(value)
+
+    if isinstance(template_or_data, dict):
+        # Inner wrappers first, then the top level itself.
+        _push(template_or_data.get("template_metadata"))
+        _push(template_or_data.get("metadata"))
+        _push(template_or_data.get("style_rules"))
+        _push(template_or_data.get("style"))
+        _push(template_or_data.get("colors"))
+        _push(template_or_data.get("typography"))
+        _push(template_or_data)
+    else:
+        for attr in ("template_metadata", "metadata", "style_rules", "style", "colors", "typography"):
+            try:
+                _push(getattr(template_or_data, attr))
+            except Exception:
+                continue
+        # Dataclasses.asdict() if available, else __dict__.
+        try:
+            from dataclasses import asdict, is_dataclass
+
+            if is_dataclass(template_or_data):
+                _push(asdict(template_or_data))
+        except Exception:
+            pass
+        if hasattr(template_or_data, "__dict__"):
+            try:
+                _push(vars(template_or_data))
+            except Exception:
+                pass
+
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        for key, value in candidate.items():
+            if value is None or value == "":
+                continue
+            # First occurrence wins so inner, more-specific wrappers take
+            # precedence over the outer record.
+            merged.setdefault(key, value)
+        nested_colors = candidate.get("colors")
+        if isinstance(nested_colors, dict):
+            for key, value in nested_colors.items():
+                if value is None or value == "":
+                    continue
+                merged.setdefault(key, value)
+
+    return merged
+
+
 def _hex_to_rgb(hex_str: str) -> tuple[float, float, float]:
     """Converts a hex color code to a normalized (0.0-1.0) RGB tuple."""
     if not hex_str:
@@ -109,16 +172,7 @@ class SpacingTokens:
 
 def resolve_template_theme(template_or_data: Any) -> ThemeTokens:
     """Dynamically resolves color tokens from template metadata or magazine data."""
-    meta = {}
-    if isinstance(template_or_data, dict):
-        meta = (
-            template_or_data.get("template_metadata")
-            or template_or_data.get("metadata")
-            or template_or_data.get("style_rules")
-            or template_or_data
-        )
-    elif hasattr(template_or_data, "colors"):
-        meta = getattr(template_or_data, "colors", {}) or {}
+    meta = _template_style_source(template_or_data)
 
     colors = meta.get("colors") or {} if isinstance(meta, dict) else {}
     style_rules = meta.get("style_rules") or meta if isinstance(meta, dict) else {}
@@ -163,16 +217,7 @@ def resolve_template_theme(template_or_data: Any) -> ThemeTokens:
 
 def resolve_template_fonts(template_or_data: Any) -> FontTokens:
     """Maps template typography preferences to standard PDF Base-14 fonts."""
-    meta = {}
-    if isinstance(template_or_data, dict):
-        meta = (
-            template_or_data.get("template_metadata")
-            or template_or_data.get("metadata")
-            or template_or_data.get("style_rules")
-            or template_or_data
-        )
-    elif hasattr(template_or_data, "typography"):
-        meta = getattr(template_or_data, "typography", {}) or {}
+    meta = _template_style_source(template_or_data)
 
     typo = meta.get("typography") or {} if isinstance(meta, dict) else {}
     style_rules = meta.get("style_rules") or meta if isinstance(meta, dict) else {}
@@ -208,13 +253,7 @@ def resolve_template_fonts(template_or_data: Any) -> FontTokens:
 
 def resolve_template_spacing(template_or_data: Any) -> SpacingTokens:
     """Resolves page margins and gutters from template style rules."""
-    meta = {}
-    if isinstance(template_or_data, dict):
-        meta = (
-            template_or_data.get("template_metadata")
-            or template_or_data.get("style_rules")
-            or template_or_data
-        )
+    meta = _template_style_source(template_or_data)
     spacing_val = str(meta.get("style") or meta.get("spacing") or "normal").lower()
 
     if spacing_val == "tight":

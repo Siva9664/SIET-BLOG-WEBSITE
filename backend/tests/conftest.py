@@ -1,14 +1,58 @@
 import asyncio
 import os
 import random
+
 import pytest
 import pytest_asyncio
 from typing import AsyncGenerator
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# --- Test-database guard: refuse to run unless TEST_DATABASE_URL is set and
+# differs from DATABASE_URL, and force every test to use only that DB. ---
+_TEST_DB_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
+_MAIN_DB_URL = os.environ.get("DATABASE_URL", "").strip()
+
+
+def _norm_url(url: str) -> str:
+    u = (url or "").strip()
+    # Normalise driver prefixes so e.g. postgresql:// and postgresql+asyncpg://
+    # pointing at the same DB compare equal.
+    return (
+        u.replace("postgresql+asyncpg://", "postgresql://")
+        .replace("postgres+asyncpg://", "postgres://")
+        .rstrip("/")
+    )
+
+
+if not _TEST_DB_URL:
+    raise RuntimeError(
+        "Refusing to run tests: TEST_DATABASE_URL is not set. "
+        "Set TEST_DATABASE_URL to a scratch/test database URL."
+    )
+if _MAIN_DB_URL and _norm_url(_TEST_DB_URL) == _norm_url(_MAIN_DB_URL):
+    raise RuntimeError(
+        "Refusing to run tests: TEST_DATABASE_URL must differ from DATABASE_URL. "
+        "Point TEST_DATABASE_URL at a dedicated scratch/test database."
+    )
+
+# Force the app settings / engine to bind to the test database only, before
+# app modules are imported. This also covers the "DATABASE_URL-only" fallback:
+# config DATABASE_URL defaults never leak into tests because settings reads
+# this overridden value.
+os.environ["DATABASE_URL"] = _TEST_DB_URL
+
 # Force testing environment configuration globally for test runs
 os.environ["ENV"] = "testing"
+
+from app.core.config import settings as _test_settings
+
+_bound_db_url = str(_test_settings.DATABASE_URL or "")
+if _norm_url(_bound_db_url) != _norm_url(_TEST_DB_URL):
+    raise RuntimeError(
+        "Refusing to run tests: app settings DATABASE_URL did not bind to "
+        f"TEST_DATABASE_URL (got {_bound_db_url!r})."
+    )
 
 from app.main import app
 from app.core.database import get_db, async_session_maker

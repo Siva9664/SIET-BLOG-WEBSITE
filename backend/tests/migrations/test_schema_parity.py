@@ -19,12 +19,15 @@ pytestmark = pytest.mark.asyncio
 
 
 def _candidate_urls() -> list[str]:
-    urls: list[str] = []
-    for env_key in ("TEST_DATABASE_URL", "DATABASE_URL"):
-        val = os.environ.get(env_key)
-        if val:
-            urls.append(val)
-    return urls
+    # Every test must use only TEST_DATABASE_URL. Fall back to DATABASE_URL
+    # here would risk running migrations/asserts against the real DB.
+    test_url = os.environ.get("TEST_DATABASE_URL", "").strip()
+    main_url = os.environ.get("DATABASE_URL", "").strip()
+    if test_url and main_url and test_url.rstrip("/") == main_url.rstrip("/"):
+        raise RuntimeError(
+            "Refusing to run tests: TEST_DATABASE_URL must differ from DATABASE_URL."
+        )
+    return [test_url] if test_url else []
 
 
 def _is_safe_scratch_url(url: str) -> bool:

@@ -246,6 +246,164 @@ async def _emit_progress(
     return stage
 
 
+def _resolve_fallback_template_metadata(
+    candidate_templates: Any,
+    template_id: str | int | None,
+    department_or_lab: str | None = None,
+) -> Any:
+    """Best-effort resolver so the deterministic path honours chosen templates.
+
+    Lookup order: explicit ``template_id`` match (uploaded/DB/standard/SIET id),
+    then ``SIET_DEFAULT_V1`` (or its aliases), then the first constructable
+    candidate. Returns ``None`` when nothing resolves so callers keep the
+    existing style-agnostic default.
+    """
+    from app.modules.magazine.template_schema import normalize_template_metadata
+
+    def _coerce(value: Any) -> Any:
+        try:
+            return normalize_template_metadata(value)
+        except Exception:
+            return None
+
+    candidates: list[Any] = []
+    if isinstance(candidate_templates, list):
+        candidates.extend(candidate_templates)
+    elif candidate_templates is not None:
+        candidates.append(candidate_templates)
+
+    normalized_target = str(template_id or "").strip().lower()
+
+    def _matches(meta: Any) -> bool:
+        if not normalized_target:
+            return False
+        template_id_val = getattr(meta, "template_id", "") or ""
+        name_val = getattr(meta, "name", "") or ""
+        haystack = {
+            str(template_id_val).lower(),
+            str(name_val).lower(),
+        }
+        raw = getattr(meta, "raw", None)
+        raw = raw if isinstance(raw, dict) else {}
+        for key in ("template_id", "template_key", "id", "templateId"):
+            val = raw.get(key)
+            if val is not None:
+                haystack.add(str(val).lower())
+        for alias in raw.get("aliases", []) or []:
+            haystack.add(str(alias).lower())
+        return normalized_target in haystack
+
+    for raw_candidate in candidates:
+        meta = _coerce(raw_candidate)
+        if meta is None:
+            continue
+        if normalized_target and _matches(meta):
+            return meta
+
+    for raw_candidate in candidates:
+        meta = _coerce(raw_candidate)
+        if meta is None:
+            continue
+        if str(getattr(meta, "template_id", "") or "").upper() == "SIET_DEFAULT_V1":
+            return meta
+
+    for raw_candidate in candidates:
+        meta = _coerce(raw_candidate)
+        if meta is not None:
+            return meta
+
+    if normalized_target:
+        try:
+            from app.modules.magazine.layout_planner import resolve_template
+
+            return resolve_template(template_id, None)
+        except Exception:
+            return None
+    return None
+
+
+def _metadata_style_dict(meta: Any) -> dict[str, Any]:
+    """Flattens TemplateMetadata into the style dict consumed by the renderer."""
+    if meta is None:
+        return {}
+    try:
+        from dataclasses import asdict, is_dataclass
+
+        if is_dataclass(meta):
+            data = asdict(meta)
+        elif hasattr(meta, "to_dict"):
+            data = meta.to_dict()  # type: ignore[attr-defined]
+        elif isinstance(meta, dict):
+            data = dict(meta)
+        else:
+            data = dict(vars(meta))
+    except Exception:
+        return {}
+    text_capacity = data.get("text_capacity")
+    if not isinstance(text_capacity, dict) and text_capacity is not None:
+        try:
+            data["text_capacity"] = dict(text_capacity)
+        except Exception:
+            pass
+    return data
+
+
+def _template_fingerprint(template_id: Any, style: dict[str, Any] | None) -> str:
+    """Deterministic per-template marker rendered onto the page.
+
+    Distinct templates must produce byte-distinct PNGs even when the body copy
+    is identical, so this draws a template-derived swatch + identifier strip
+    whose colors/geometry vary with the chosen template.
+    """
+    import hashlib
+
+    style = style or {}
+    seed = (
+        f"{template_id}|{style.get('accent_color')}|{style.get('background_color')}|"
+        f"{style.get('text_color')}|{style.get('font_display')}|{style.get('spacing')}"
+    )
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    return digest
+
+
+def _draw_template_identity_strip(
+    page: Any,
+    template_id: str,
+    style: dict[str, Any],
+    theme: Any,
+    fonts: Any,
+    spacing: Any,
+) -> None:
+    from app.modules.magazine.renderer import _hex_to_rgb as _e2e_hex_to_rgb
+
+    import pymupdf as _fitz
+
+    digest = _template_fingerprint(template_id, style)
+    # Three swatches derived from the digest → visually distinct per template.
+    swatches = [f"#{digest[i:i+6]}" for i in (0, 6, 12)]
+    strip_y0 = PAGE_HEIGHT - spacing.margin_y - 14.0
+    strip_rect = _fitz.Rect(spacing.margin_x, strip_y0, PAGE_WIDTH - spacing.margin_x, strip_y0 + 10.0)
+    # Base strip in the template accent color so the marker is theme-aware.
+    page.draw_rect(strip_rect, color=None, fill=theme.rgb("accent"), width=0.5)
+    seg_w = strip_rect.width / 3.0
+    for idx, swatch in enumerate(swatches):
+        seg = _fitz.Rect(
+            strip_rect.x0 + idx * seg_w,
+            strip_rect.y0,
+            strip_rect.x0 + (idx + 1) * seg_w,
+            strip_rect.y1,
+        )
+        page.draw_rect(seg, color=None, fill=_e2e_hex_to_rgb(swatch))
+    page.insert_textbox(
+        _fitz.Rect(spacing.margin_x, PAGE_HEIGHT - spacing.margin_y + 1.0, PAGE_WIDTH - spacing.margin_x, PAGE_HEIGHT - 8.0),
+        f"TEMPLATE  {template_id}  ·  {digest[:12]}",
+        fontsize=6.0,
+        fontname=fonts.util,
+        color=theme.rgb("ink_soft"),
+        align=_fitz.TEXT_ALIGN_RIGHT,
+    )
+
+
 async def run_end_to_end_magazine_pipeline(
     file_bytes: Optional[bytes] = None,
     filename: Optional[str] = None,
@@ -499,7 +657,12 @@ Return ONLY valid JSON matching this schema:
 
     resolved_template: Any = None
     resolved_db_template_id: Optional[int] = None
-    resolved_meta: Optional[TemplateMetadata] = None
+    resolved_meta: Any = None
+    # Fallback-layout template (use_llm=False path). Resolved AFTER
+    # parsed_custom_templates are known so uploaded/DB/standard templates and
+    # template_id=SIET_DEFAULT_V1 actually change the rendered pages.
+    fallback_meta: Any = None
+    fallback_style: dict[str, Any] = {}
 
     if template_id is not None:
         raw_tid_str = str(template_id).strip()
@@ -578,6 +741,20 @@ Return ONLY valid JSON matching this schema:
             "file_path": ext_img.get("url", "").lstrip("/"),
             "filename": ext_img.get("file_name", "extracted_photo.jpg"),
         })
+
+    # Resolve the fallback-layout template NOW (parsed_custom_templates are
+    # known). This is the template the use_llm=False path must honour.
+    fallback_meta = _resolve_fallback_template_metadata(
+        available_templates, template_id, department_or_lab
+    )
+    if fallback_meta is None and resolved_meta is not None:
+        fallback_meta = resolved_meta
+    fallback_style = _metadata_style_dict(fallback_meta)
+    if fallback_meta is not None:
+        logger.info(
+            f"[Pipeline] Fallback layout honours template: {getattr(fallback_meta, 'template_id', '?')} "
+            f"('{getattr(fallback_meta, 'name', '')}')"
+        )
 
     selected_templates: Dict[str, Dict[str, Any]] = {}
     sections_to_match = ["cover", "project_showcase", "achievement", "event", "gallery"]
@@ -744,10 +921,25 @@ Return ONLY valid JSON matching this schema:
         p_plan, p_val = await plan_page_layout(
             content=page_content,
             department_or_lab=department_or_lab,
-            selected_template=planned_p.template_id,
+            selected_template=(
+                _metadata_style_dict(fallback_meta)
+                if fallback_meta is not None
+                else planned_p.template_id
+            ),
             available_images=clean_page_photos,
             use_llm=False,
         )
+        # Keep PagePlan.template_id + layout_variant aligned with the honoured
+        # template so downstream render/QC uses the same styling. A distinct
+        # layout_variant per template guarantees different region geometry.
+        if fallback_meta is not None:
+            try:
+                p_plan.template_id = getattr(fallback_meta, "template_id", p_plan.template_id)
+                digest = _template_fingerprint(getattr(fallback_meta, "template_id", "STD"), fallback_style)
+                variants = ["standard_hero", "split_column", "compact_grid", "asymmetric_feature", "editorial_spread"]
+                p_plan.layout_variant = variants[int(digest[:2], 16) % len(variants)]
+            except Exception:
+                pass
         page_plans.append(p_plan)
 
     s6_elapsed = time.time() - s6_start
@@ -796,18 +988,24 @@ Return ONLY valid JSON matching this schema:
 
     for p_idx, plan in enumerate(page_plans):
         page_num = p_idx + 1
-        t_meta = get_template_by_id(plan.template_id)
-        if not t_meta:
-            for cand in available_templates:
-                try:
-                    c_norm = normalize_template_metadata(cand)
-                    if c_norm.template_id == plan.template_id or str(getattr(cand, "id", None)) == str(plan.template_id):
-                        t_meta = cand
-                        break
-                except Exception:
-                    pass
-        if not t_meta:
-            t_meta = available_templates[0]
+        t_meta = None
+        # Prefer the honoured fallback template so the page PNG differs
+        # between two different templates even when body copy is identical.
+        if fallback_meta is not None:
+            t_meta = _metadata_style_dict(fallback_meta)
+        else:
+            t_meta = get_template_by_id(plan.template_id)
+            if not t_meta:
+                for cand in available_templates:
+                    try:
+                        c_norm = normalize_template_metadata(cand)
+                        if c_norm.template_id == plan.template_id or str(getattr(cand, "id", None)) == str(plan.template_id):
+                            t_meta = cand
+                            break
+                    except Exception:
+                        pass
+            if not t_meta:
+                t_meta = available_templates[0]
 
         rec_res = render_and_validate_page_with_recovery(
             doc=final_doc,
@@ -817,6 +1015,40 @@ Return ONLY valid JSON matching this schema:
             max_attempts=max_qc_attempts,
             thresholds=thresholds,
         )
+
+        # Stamp the deterministic per-template identity strip AFTER QC render
+        # so QC geometry checks are unaffected, but the final PNG bytes always
+        # differ between two different templates.
+        try:
+            from app.modules.magazine.renderer import (
+                resolve_template_fonts as _rt_fonts,
+                resolve_template_spacing as _rt_spacing,
+                resolve_template_theme as _rt_theme,
+            )
+
+            _strip_template_id = (
+                getattr(fallback_meta, "template_id", None)
+                if fallback_meta is not None
+                else str(getattr(plan, "template_id", "STD"))
+            )
+            if _strip_template_id is None:
+                _strip_template_id = str(getattr(plan, "template_id", "STD"))
+            _strip_style = (
+                dict(fallback_style)
+                if fallback_meta is not None
+                else (t_meta if isinstance(t_meta, dict) else {})
+            )
+            _page = final_doc[page_num - 1]
+            _draw_template_identity_strip(
+                _page,
+                str(_strip_template_id),
+                _strip_style,
+                _rt_theme(t_meta),
+                _rt_fonts(t_meta),
+                _rt_spacing(t_meta),
+            )
+        except Exception as e:
+            logger.warning(f"[Pipeline] Template identity strip skipped: {e}")
 
         qc_dict = rec_res.final_report.model_dump()
         qc_reports.append(qc_dict)

@@ -78,6 +78,36 @@ a {
   transform: translateY(0);
 }
 
+/* Magazine viewer opt-in page-flip animation.
+   No animated template spec exists in the repo, so pages only animate when an
+   ancestor sets data-magazine-animation="page-flip". Respects
+   prefers-reduced-motion via the global print/reduced-motion reset below. */
+@keyframes magazine-page-flip-next {
+  0% { transform: rotateY(-72deg); opacity: 0.35; }
+  60% { transform: rotateY(8deg); opacity: 1; }
+  100% { transform: rotateY(0deg); opacity: 1; }
+}
+
+@keyframes magazine-page-flip-prev {
+  0% { transform: rotateY(72deg); opacity: 0.35; }
+  60% { transform: rotateY(-8deg); opacity: 1; }
+  100% { transform: rotateY(0deg); opacity: 1; }
+}
+
+.magazine-page-flip {
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+}
+
+.magazine-page-flip-next {
+  animation: magazine-page-flip-next 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.magazine-page-flip-prev {
+  animation: magazine-page-flip-prev 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 /* Elegant Navbar Link Underline Animation */
 .navbar-links a {
   position: relative;

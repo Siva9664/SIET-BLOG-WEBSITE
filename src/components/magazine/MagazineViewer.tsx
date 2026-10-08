@@ -8,6 +8,28 @@ import type { MagazineIssue } from "@/lib/types";
 export function MagazineViewer({ issue }: { issue: MagazineIssue }) {
   const [currentPageNum, setCurrentPageNum] = useState(1);
   const [showAccessibleText, setShowAccessibleText] = useState(false);
+  // Optional page-flip animation state. There is currently NO animated
+  // template spec in the repo (no animation/motion/flip fields on
+  // MagazineTemplate, TemplateVersion, TemplatePage, TemplateRegion,
+  // template_metadata, style_rules, section_schema, or the SIET_DEFAULT_V1
+  // spec), so this stays OFF unless a page opts in via
+  // data-magazine-animation="page-flip".
+  const [flipKey, setFlipKey] = useState(0);
+  const [flipDir, setFlipDir] = useState<"next" | "prev" | null>(null);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setPrefersReducedMotion(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  const animationEnabled =
+    !prefersReducedMotion &&
+    typeof document !== "undefined" &&
+    document.querySelector('[data-magazine-animation="page-flip"]') !== null;
 
   const downloadUrl = api.magDownloadUrl(issue.slug);
 
@@ -18,11 +40,19 @@ export function MagazineViewer({ issue }: { issue: MagazineIssue }) {
   const currentPage = pages.find((p) => p.pageNumber === currentPageNum) || pages[0];
 
   const handlePrev = () => {
-    if (currentPageNum > 1) setCurrentPageNum((p) => p - 1);
+    if (currentPageNum > 1) {
+      setFlipDir("prev");
+      setFlipKey((k) => k + 1);
+      setCurrentPageNum((p) => p - 1);
+    }
   };
 
   const handleNext = () => {
-    if (currentPageNum < totalPages) setCurrentPageNum((p) => p + 1);
+    if (currentPageNum < totalPages) {
+      setFlipDir("next");
+      setFlipKey((k) => k + 1);
+      setCurrentPageNum((p) => p + 1);
+    }
   };
 
   // Keyboard Navigation (Left / Right Arrow Keys)
@@ -107,12 +137,22 @@ export function MagazineViewer({ issue }: { issue: MagazineIssue }) {
       </div>
 
       {/* Main Page Display Canvas */}
-      <div className="border border-line bg-paper-3 p-4 sm:p-8 flex justify-center items-center min-h-[600px] shadow-inner relative overflow-hidden">
+      <div className="border border-line bg-paper-3 p-4 sm:p-8 flex justify-center items-center min-h-[600px] shadow-inner relative overflow-hidden [perspective:1600px]">
         {currentPage?.imageUrl ? (
           <img
+            key={animationEnabled ? `${flipKey}-${currentPageNum}` : currentPageNum}
             src={currentPage.imageUrl}
             alt={`${issue.title} - Page ${currentPageNum}`}
-            className="max-w-full max-h-[85vh] object-contain border border-line shadow-md bg-paper transition-all duration-200"
+            style={
+              animationEnabled && flipDir
+                ? { transformOrigin: flipDir === "next" ? "left center" : "right center" }
+                : undefined
+            }
+            className={`max-w-full max-h-[85vh] object-contain border border-line shadow-md bg-paper transition-all duration-200 ${
+              animationEnabled && flipDir ? "magazine-page-flip" : ""
+            } ${animationEnabled && flipDir === "next" ? "magazine-page-flip-next" : ""} ${
+              animationEnabled && flipDir === "prev" ? "magazine-page-flip-prev" : ""
+            }`}
           />
         ) : (
           <div className="p-12 text-center space-y-3 bg-paper border border-line max-w-md">
