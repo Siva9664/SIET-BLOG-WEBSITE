@@ -96,9 +96,38 @@ PYTHONPATH=. ./venv/bin/uvicorn app.main:app --reload --port 8000
 - **ReDoc API Documentation**: `http://localhost:8000/redoc`
 
 ### 5. Run Testing Suite
+
+Tests **never** touch the real database. They require a dedicated scratch
+PostgreSQL database via `TEST_DATABASE_URL` (which must differ from
+`DATABASE_URL`). Prepare it once, then run pytest:
+
 ```bash
+# 1. Create the scratch DB (example name; never reuse the prod/dev DB name)
+createdb siet_schema_check
+export TEST_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/siet_schema_check"
+export DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/siet_db"
+
+# 2. Apply Alembic migrations to the SCRATCH db only
+DATABASE_URL="$TEST_DATABASE_URL" PYTHONPATH=. ./venv/bin/alembic upgrade head
+
+# 3. (Legacy safety net) sync any extra columns outside migrations
+DATABASE_URL="$TEST_DATABASE_URL" PYTHONPATH=. ./venv/bin/python scripts/sync_db.py
+
+# 4. Ensure the default super-admin exists (email admin@siet.ac.in).
+#    Tests do NOT assume the admin is user id 1: E2E tests use a persisted
+#    `admin_user` fixture (real row, real id) and assert
+#    `mag.created_by_id == admin_user.id`.
+DATABASE_URL="$TEST_DATABASE_URL" ADMIN_INITIAL_PASSWORD="ChangeMeDevOnly123!" \
+  PYTHONPATH=. ./venv/bin/python scripts/check_admin.py
+
+# 5. Run the suite (conftest re-points DATABASE_URL at TEST_DATABASE_URL
+#    automatically and refuses to run if the two are equal)
 PYTHONPATH=. ./venv/bin/pytest tests -v
 ```
+
+`tests/conftest.py` enforces this: it raises unless `TEST_DATABASE_URL` is set
+and differs from `DATABASE_URL`, and the check is idempotent across re-imports
+via the `_SIET_TEST_DB_GUARD_DONE` env flag.
 
 ---
 

@@ -285,17 +285,31 @@ class TemplateMetadata:
         return data
 
 
+def _coerce_style_rules(raw: Any) -> dict[str, Any]:
+    """Returns ``raw`` as a dict, or {} if it is not a dict.
+
+    A ``style`` string like ``"modern_tech"`` is a style *name*, not a rules
+    mapping, so it must be ignored here instead of ``dict(...)``-coerced
+    (which raises ``ValueError`` on a string).
+    """
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
 def _metadata_sources(template: Any) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
     if isinstance(template, dict):
         top_level = dict(template)
-        style_rules = dict(template.get("style_rules") or template.get("style") or {})
+        style_rules = _coerce_style_rules(template.get("style_rules"))
+        if not style_rules:
+            style_rules = _coerce_style_rules(template.get("style"))
         section_schema = list(template.get("section_schema") or template.get("sections") or [])
     else:
         top_level = {
             "id": getattr(template, "id", None),
             "name": getattr(template, "name", ""),
         }
-        style_rules = dict(getattr(template, "style_rules", None) or {})
+        style_rules = _coerce_style_rules(getattr(template, "style_rules", None))
+        if not style_rules:
+            style_rules = _coerce_style_rules(getattr(template, "style", None))
         section_schema = list(getattr(template, "section_schema", None) or [])
 
     metadata = (

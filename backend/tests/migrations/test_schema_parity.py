@@ -21,12 +21,9 @@ pytestmark = pytest.mark.asyncio
 def _candidate_urls() -> list[str]:
     # Every test must use only TEST_DATABASE_URL. Fall back to DATABASE_URL
     # here would risk running migrations/asserts against the real DB.
+    # NOTE: the TEST_DATABASE_URL-vs-DATABASE_URL inequality guard lives in
+    # tests/conftest.py; do not duplicate it here.
     test_url = os.environ.get("TEST_DATABASE_URL", "").strip()
-    main_url = os.environ.get("DATABASE_URL", "").strip()
-    if test_url and main_url and test_url.rstrip("/") == main_url.rstrip("/"):
-        raise RuntimeError(
-            "Refusing to run tests: TEST_DATABASE_URL must differ from DATABASE_URL."
-        )
     return [test_url] if test_url else []
 
 

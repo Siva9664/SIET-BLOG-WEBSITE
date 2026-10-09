@@ -254,62 +254,55 @@ async def test_end_to_end_qc_recovery_on_potential_overflow(temp_assets):
 
 
 @pytest.mark.asyncio
-async def test_end_to_end_api_endpoints(temp_assets):
+async def test_end_to_end_api_endpoints(temp_assets, client, db_session, admin_user):
     """
     Tests FastAPI HTTP endpoints:
     - POST /admin/magazine/generate/end-to-end-json
     - POST /admin/magazine/generate/end-to-end (multipart)
+
+    Uses the persisted ``admin_user`` fixture (real row, real id) as the
+    ``require_lab_admin`` principal so ``Magazine.created_by_id`` FKs hold on
+    a fresh scratch DB.
     """
-    from app.modules.auth.models import User, UserRole
     from app.shared.auth.dependencies import require_lab_admin
 
-    admin_user = User(
-        id=1,
-        name="Super Admin",
-        email="admin@siet.in",
-        role=UserRole.SUPER_ADMIN.value,
-        is_active=True,
-        is_verified=True,
-    )
     app.dependency_overrides[require_lab_admin] = lambda: admin_user
 
     try:
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # 1. Test JSON endpoint
-            json_payload = {
-                "department_or_lab": "IoT Lab",
-                "event_name": "IoT Embedded Systems Expo",
-                "raw_notes": "Sensors and smart telemetry units designed by students.",
-                "target_page_budget": 2,
-                "publish_immediately": True,
-                "use_llm": False,
-            }
-            res = await client.post("/api/v1/admin/magazine/generate/end-to-end-json", json=json_payload)
-            assert res.status_code == 200, res.text
-            data = res.json()
-            assert data.get("success") is True
-            mag_data = data["data"]
-            assert mag_data["total_pages"] >= 1  # one sentence of notes cannot honestly fill 2 pages; no filler padding
-            assert mag_data["pdf_url"] is not None
-            assert len(mag_data["stage_telemetry"]) == 9
+        # 1. Test JSON endpoint
+        json_payload = {
+            "department_or_lab": "IoT Lab",
+            "event_name": "IoT Embedded Systems Expo",
+            "raw_notes": "Sensors and smart telemetry units designed by students.",
+            "target_page_budget": 2,
+            "publish_immediately": True,
+            "use_llm": False,
+        }
+        res = await client.post("/api/v1/admin/magazine/generate/end-to-end-json", json=json_payload)
+        assert res.status_code == 200, res.text
+        data = res.json()
+        assert data.get("success") is True
+        mag_data = data["data"]
+        assert mag_data["total_pages"] >= 1  # one sentence of notes cannot honestly fill 2 pages; no filler padding
+        assert mag_data["pdf_url"] is not None
+        assert len(mag_data["stage_telemetry"]) == 9
 
-            # 2. Test Multipart endpoint
-            files = {
-                "file": ("notes.txt", b"AI Computer Vision Workshop notes and lab presentations.", "text/plain"),
-                "photos": ("event_snap.jpg", open(temp_assets["photo_path"], "rb"), "image/jpeg"),
-            }
-            form_data = {
-                "department_or_lab": "AI Lab",
-                "event_name": "Vision AI Workshop",
-                "target_page_budget": "2",
-                "use_llm": "false",
-            }
-            res_mp = await client.post("/api/v1/admin/magazine/generate/end-to-end", data=form_data, files=files)
-            assert res_mp.status_code == 200, res_mp.text
-            data_mp = res_mp.json()
-            assert data_mp.get("success") is True
-            assert data_mp["data"]["total_pages"] >= 1  # one sentence cannot honestly fill 2 pages; no filler padding
+        # 2. Test Multipart endpoint
+        files = {
+            "file": ("notes.txt", b"AI Computer Vision Workshop notes and lab presentations.", "text/plain"),
+            "photos": ("event_snap.jpg", open(temp_assets["photo_path"], "rb"), "image/jpeg"),
+        }
+        form_data = {
+            "department_or_lab": "AI Lab",
+            "event_name": "Vision AI Workshop",
+            "target_page_budget": "2",
+            "use_llm": "false",
+        }
+        res_mp = await client.post("/api/v1/admin/magazine/generate/end-to-end", data=form_data, files=files)
+        assert res_mp.status_code == 200, res_mp.text
+        data_mp = res_mp.json()
+        assert data_mp.get("success") is True
+        assert data_mp["data"]["total_pages"] >= 1  # one sentence cannot honestly fill 2 pages; no filler padding
     finally:
         app.dependency_overrides.pop(require_lab_admin, None)
 
@@ -348,61 +341,54 @@ async def test_end_to_end_pipeline_chosen_template_applied(temp_assets):
 
 
 @pytest.mark.asyncio
-async def test_end_to_end_api_endpoints_chosen_template(temp_assets):
+async def test_end_to_end_api_endpoints_chosen_template(temp_assets, client, db_session, admin_user):
     """
     Verifies that POST /admin/magazine/generate/end-to-end multipart form data
     and POST /admin/magazine/generate/end-to-end-json properly accept and enforce template_id.
+
+    Uses the persisted ``admin_user`` fixture (real row, real id) as the
+    ``require_lab_admin`` principal so ``Magazine.created_by_id`` FKs hold on
+    a fresh scratch DB.
     """
-    from app.modules.auth.models import User, UserRole
     from app.shared.auth.dependencies import require_lab_admin
 
-    admin_user = User(
-        id=1,
-        name="Super Admin",
-        email="admin@siet.in",
-        role=UserRole.SUPER_ADMIN.value,
-        is_active=True,
-        is_verified=True,
-    )
     app.dependency_overrides[require_lab_admin] = lambda: admin_user
 
     try:
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # 1. JSON endpoint with template_id
-            json_payload = {
-                "department_or_lab": "AI Lab",
-                "event_name": "AI Swarm Symposium",
-                "raw_notes": "Reinforcement learning for quadcopter formation flying.",
-                "target_page_budget": 2,
-                "template_id": "ai_lab_project_showcase",
-                "publish_immediately": True,
-                "use_llm": False,
-            }
-            res = await client.post("/api/v1/admin/magazine/generate/end-to-end-json", json=json_payload)
-            assert res.status_code == 200, res.text
-            data = res.json()["data"]
-            stage_4 = next((s for s in data["stage_telemetry"] if s["stage_number"] == 4), None)
-            assert stage_4 is not None
-            assert stage_4["details"]["chosen_template_id"] == "ai_lab_project_showcase"
+        # 1. JSON endpoint with template_id
+        json_payload = {
+            "department_or_lab": "AI Lab",
+            "event_name": "AI Swarm Symposium",
+            "raw_notes": "Reinforcement learning for quadcopter formation flying.",
+            "target_page_budget": 2,
+            "template_id": "ai_lab_project_showcase",
+            "publish_immediately": True,
+            "use_llm": False,
+        }
+        res = await client.post("/api/v1/admin/magazine/generate/end-to-end-json", json=json_payload)
+        assert res.status_code == 200, res.text
+        data = res.json()["data"]
+        stage_4 = next((s for s in data["stage_telemetry"] if s["stage_number"] == 4), None)
+        assert stage_4 is not None
+        assert stage_4["details"]["chosen_template_id"] == "ai_lab_project_showcase"
 
-            # 2. Multipart endpoint with template_id form field
-            files = {
-                "file": ("notes.txt", b"Robotics prototype demonstration notes.", "text/plain"),
-            }
-            form_data = {
-                "department_or_lab": "Robotics Lab",
-                "event_name": "Robotics Autonomous Rover",
-                "template_id": "robotics_lab_autonomous",
-                "target_page_budget": "2",
-                "use_llm": "false",
-            }
-            res_mp = await client.post("/api/v1/admin/magazine/generate/end-to-end", data=form_data, files=files)
-            assert res_mp.status_code == 200, res_mp.text
-            data_mp = res_mp.json()["data"]
-            stage_4_mp = next((s for s in data_mp["stage_telemetry"] if s["stage_number"] == 4), None)
-            assert stage_4_mp is not None
-            assert stage_4_mp["details"]["chosen_template_id"] == "robotics_lab_autonomous_systems"
+        # 2. Multipart endpoint with template_id form field
+        files = {
+            "file": ("notes.txt", b"Robotics prototype demonstration notes.", "text/plain"),
+        }
+        form_data = {
+            "department_or_lab": "Robotics Lab",
+            "event_name": "Robotics Autonomous Rover",
+            "template_id": "robotics_lab_autonomous",
+            "target_page_budget": "2",
+            "use_llm": "false",
+        }
+        res_mp = await client.post("/api/v1/admin/magazine/generate/end-to-end", data=form_data, files=files)
+        assert res_mp.status_code == 200, res_mp.text
+        data_mp = res_mp.json()["data"]
+        stage_4_mp = next((s for s in data_mp["stage_telemetry"] if s["stage_number"] == 4), None)
+        assert stage_4_mp is not None
+        assert stage_4_mp["details"]["chosen_template_id"] == "robotics_lab_autonomous_systems"
     finally:
         app.dependency_overrides.pop(require_lab_admin, None)
 
@@ -446,23 +432,14 @@ async def test_end_to_end_json_endpoint_requires_lab_admin(temp_assets, client, 
 
 
 @pytest.mark.asyncio
-async def test_end_to_end_json_endpoint_resolves_lab_and_creator(temp_assets, client, db_session):
+async def test_end_to_end_json_endpoint_resolves_lab_and_creator(temp_assets, client, db_session, admin_user):
     """
     Verifies that the JSON endpoint resolves the caller's lab via
     resolve_creation_lab and tags the magazine with lab_id/created_by_id
     (issue #4), same as the form-based /generate/end-to-end endpoint.
     """
-    from app.modules.auth.models import User, UserRole
     from app.shared.auth.dependencies import require_lab_admin
 
-    admin_user = User(
-        id=1,
-        name="Super Admin",
-        email="admin@siet.in",
-        role=UserRole.SUPER_ADMIN.value,
-        is_active=True,
-        is_verified=True,
-    )
     app.dependency_overrides[require_lab_admin] = lambda: admin_user
 
     try:
@@ -491,30 +468,21 @@ async def test_end_to_end_json_endpoint_resolves_lab_and_creator(temp_assets, cl
         mag = (await db_session.execute(stmt)).scalars().first()
         assert mag is not None
         assert mag.lab_id == 42
-        assert mag.created_by_id == 1
+        assert mag.created_by_id == admin_user.id
         assert mag.status == "published"
     finally:
         app.dependency_overrides.pop(require_lab_admin, None)
 
 
 @pytest.mark.asyncio
-async def test_end_to_end_json_endpoint_sets_photo_filename_to_saved_name(temp_assets, client, db_session):
+async def test_end_to_end_json_endpoint_sets_photo_filename_to_saved_name(temp_assets, client, db_session, admin_user):
     """
     Verifies that the JSON endpoint normalizes photo dicts so that the
     'filename' field is set to the saved name (basename of file_path/url),
     enabling the layout planner's asset-name fallback chain (issue #2).
     """
-    from app.modules.auth.models import User, UserRole
     from app.shared.auth.dependencies import require_lab_admin
 
-    admin_user = User(
-        id=1,
-        name="Super Admin",
-        email="admin@siet.in",
-        role=UserRole.SUPER_ADMIN.value,
-        is_active=True,
-        is_verified=True,
-    )
     app.dependency_overrides[require_lab_admin] = lambda: admin_user
 
     try:
@@ -551,7 +519,7 @@ async def test_end_to_end_json_endpoint_sets_photo_filename_to_saved_name(temp_a
         mag = (await db_session.execute(stmt)).scalars().first()
         assert mag is not None
         assert mag.lab_id == 7
-        assert mag.created_by_id == 1
+        assert mag.created_by_id == admin_user.id
     finally:
         app.dependency_overrides.pop(require_lab_admin, None)
 
