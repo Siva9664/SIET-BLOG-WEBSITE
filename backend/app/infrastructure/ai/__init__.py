@@ -13,10 +13,8 @@ from app.infrastructure.ai.exceptions import (
     AISchemaValidationError,
     AITimeoutError,
 )
-from app.infrastructure.ai.gemini_provider import GeminiProvider
 from app.infrastructure.ai.manager import AIServiceManager, get_ai_service
 from app.infrastructure.ai.ollama_provider import OllamaProvider
-from app.infrastructure.ai.openai_provider import OpenAIProvider
 from app.infrastructure.ai.schemas import (
     EditorialPlan,
     EditorialReview,
@@ -29,8 +27,6 @@ from app.infrastructure.ai.schemas import (
 __all__ = [
     "BaseAIProvider",
     "OllamaProvider",
-    "GeminiProvider",
-    "OpenAIProvider",
     "AIServiceManager",
     "get_ai_service",
     "AIError",

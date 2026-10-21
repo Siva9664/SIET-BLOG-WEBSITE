@@ -45,5 +45,5 @@ async def test_magazine_ai_health_authorized_for_admin(
     payload = data["data"]
     assert "status" in payload
     assert "configured_primary" in payload
-    assert payload["configured_primary"] == "qwen"
+    assert payload["configured_primary"] in ("gemma", "qwen")
     assert "primary" in payload

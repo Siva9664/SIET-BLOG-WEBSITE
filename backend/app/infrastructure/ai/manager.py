@@ -14,16 +14,14 @@ from app.infrastructure.ai.exceptions import (
     AISchemaValidationError,
     AITimeoutError,
 )
-from app.infrastructure.ai.gemini_provider import GeminiProvider
 from app.infrastructure.ai.ollama_provider import OllamaProvider
-from app.infrastructure.ai.openai_provider import OpenAIProvider
 
 
 class AIServiceManager:
     """
     Central orchestration manager for AI providers.
-    Directs requests to primary provider (default: local Qwen3 14B via Ollama)
-    and observably falls back to configured fallback provider (e.g. Gemini/OpenAI) upon failure.
+    Directs requests to primary local Gemma provider (default: local Qwen3 14B via Ollama).
+    Live runtime pipeline is strictly local and Gemma-only.
     """
 
     def __init__(
@@ -37,8 +35,8 @@ class AIServiceManager:
 
         self._providers: Dict[str, BaseAIProvider] = {
             "qwen": OllamaProvider(),
-            "gemini": GeminiProvider(),
-            "openai": OpenAIProvider(),
+            "ollama": OllamaProvider(),
+            "gemma": OllamaProvider(),
         }
         self.last_provider_used: str = self.primary_name
 

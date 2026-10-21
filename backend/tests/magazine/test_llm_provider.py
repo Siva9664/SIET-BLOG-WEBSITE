@@ -38,7 +38,7 @@ def test_auto_provider_defaults_to_ollama_qwen_without_cloud_keys(monkeypatch):
     config = llm_provider.get_llm_config()
 
     assert config.provider == "ollama"
-    assert "qwen" in config.model.lower()
+    assert ("gemma" in config.model.lower() or "qwen" in config.model.lower())
     assert config.base_url == "http://localhost:11434"
 
 

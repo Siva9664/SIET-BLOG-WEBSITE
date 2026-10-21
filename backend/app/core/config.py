@@ -64,16 +64,12 @@ class Settings(BaseSettings):
     INTERNAL_API_KEY: SecretStr = SecretStr("internal-api-key-secret")
     CONTACT_RECEIVER_EMAIL: str = "ai.lab@siet.ac.in"
 
-    # AI & Editorial Intelligence Provider Settings
-    AI_PROVIDER: str = "qwen"
-    AI_FALLBACK_PROVIDER: str | None = "gemini"
+    # AI & Editorial Intelligence Provider Settings (100% Local Inference)
+    AI_PROVIDER: str = "gemma"
+    AI_FALLBACK_PROVIDER: str | None = "none"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "qwen3:14b"
+    OLLAMA_MODEL: str = "gemma3:4b"
     OLLAMA_TIMEOUT: float = 120.0
-    GEMINI_API_KEY: SecretStr = SecretStr("")
-    GEMINI_MODEL: str = "gemini-1.5-flash"
-    OPENAI_API_KEY: SecretStr = SecretStr("")
-    OPENAI_MODEL: str = "gpt-3.5-turbo"
 
     RSS_FEEDS: list[dict[str, str]] = [
         {
@@ -100,10 +96,10 @@ class Settings(BaseSettings):
     REFRESH_COOKIE_NAME: str = "refresh_token"
     REQUEST_TIMEOUT: int = 30
 
-    MAGAZINE_LLM_PROVIDER: str = "ollama"
-    MAGAZINE_LLM_MODEL: str = ""
+    MAGAZINE_LLM_PROVIDER: str = "gemma"
+    MAGAZINE_LLM_MODEL: str = "gemma3:4b"
     MAGAZINE_OLLAMA_BASE_URL: str = "http://localhost:11434"
-    MAGAZINE_OLLAMA_MODEL: str = "qwen3:14b"
+    MAGAZINE_OLLAMA_MODEL: str = "gemma3:4b"
     MAGAZINE_GEMINI_MODEL: str = "gemini-1.5-flash"
     MAGAZINE_OPENAI_MODEL: str = "gpt-3.5-turbo"
     MAGAZINE_LLM_TIMEOUT_SECONDS: float = 120.0
