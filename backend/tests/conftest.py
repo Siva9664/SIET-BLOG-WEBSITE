@@ -112,10 +112,13 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides.clear()
 
 
+import uuid
+
+
 async def _create_user_and_token(db_session: AsyncSession, *, email_verified: bool, role: str = "user") -> str:
     user = User(
         name="Test User",
-        email=f"fixture_{random.randint(100000, 999999)}@siet.in",
+        email=f"fixture_{uuid.uuid4().hex}@siet.in",
         password_hash=hash_password("Password123"),
         role=role,
         email_verified=email_verified,
@@ -138,7 +141,7 @@ async def admin_user(db_session: AsyncSession):
 
     user = User(
         name="E2E Admin",
-        email=f"e2e_admin_{random.randint(100000, 999999)}@siet.in",
+        email=f"e2e_admin_{uuid.uuid4().hex}@siet.in",
         password_hash=hash_password("Password123"),
         role=UserRole.SUPER_ADMIN.value,
         is_active=True,
