@@ -296,7 +296,13 @@ def _coerce_style_rules(raw: Any) -> dict[str, Any]:
 
 
 def _metadata_sources(template: Any) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
-    if isinstance(template, dict):
+    if isinstance(template, TemplateMetadata):
+        top_level = template.to_dict()
+        if "raw" in top_level and isinstance(top_level["raw"], dict):
+            top_level = top_level["raw"] | top_level
+        style_rules = _coerce_style_rules(top_level.get("style_rules"))
+        section_schema = []
+    elif isinstance(template, dict):
         top_level = dict(template)
         style_rules = _coerce_style_rules(template.get("style_rules"))
         if not style_rules:

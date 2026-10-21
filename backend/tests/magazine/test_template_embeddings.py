@@ -16,6 +16,17 @@ pytest.importorskip("sentence_transformers", reason="ML extras (sentence-transfo
 async def test_seed_and_retrieve_template_embeddings():
     async with async_session_maker() as db:
         tmpl = (await db.execute(select(MagazineTemplate).where(MagazineTemplate.is_active == True))).scalars().first()
+        if not tmpl:
+            from app.modules.magazine.models import DEFAULT_SECTION_SCHEMA, DEFAULT_STYLE_RULES
+            tmpl = MagazineTemplate(
+                name="Default Active Test Template",
+                is_active=True,
+                section_schema=DEFAULT_SECTION_SCHEMA,
+                style_rules=DEFAULT_STYLE_RULES,
+            )
+            db.add(tmpl)
+            await db.commit()
+            await db.refresh(tmpl)
         assert tmpl is not None, "Active template must exist"
 
         # 1. Seed embeddings
