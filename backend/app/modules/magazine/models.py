@@ -58,6 +58,9 @@ class Magazine(Base, BaseModelMixin):
     # Pre-generation Editorial Plan & Post-generation Holistic Design Score
     editorial_plan: Mapped[dict | None] = mapped_column(JSON, default=dict, nullable=True)
     orchestrator_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    layout_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    content_accuracy_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    generation_mode: Mapped[str] = mapped_column(String(50), default="llm", nullable=False)
 
     # === OWNERSHIP FIELDS ===
     lab_id: Mapped[int | None] = mapped_column(ForeignKey("labs.id", ondelete="SET NULL"), nullable=True, index=True)

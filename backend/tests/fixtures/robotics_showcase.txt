@@ -1,0 +1,17 @@
+Robotics Club Annual Showcase 2026
+Event Date: 14 March 2026
+
+Overview:
+The Robotics Club Annual Showcase 2026 was conducted over two days, featuring 42 student teams from three departments across the campus. The event evaluated projects with esteemed judges from two partner companies.
+
+Project AgriBot:
+Developed by Karthik R, Project AgriBot is an autonomous seed-sowing robot powered by Raspberry Pi and an integrated soil-moisture sensor. During field trials, AgriBot successfully planted one acre under two hours.
+
+Project DroneGuard:
+Led by Meena S, Project DroneGuard is an autonomous quadcopter designed for security surveillance. The quadcopter achieved 96 percent waypoint accuracy in indoor GPS-denied environments.
+
+Achievements & Awards:
+In the final project competition, Project AgriBot won first place with a cash prize of Rs 50,000. Project DroneGuard was awarded Best Innovation.
+
+Hands-on Workshop:
+On the second day, a specialized ROS2 workshop was hosted for students, training 60 participants in robot operating system fundamentals and node communication.

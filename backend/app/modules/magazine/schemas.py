@@ -454,6 +454,9 @@ class EndToEndMagazineResponse(BaseModel):
     captions: list[str] = []
     validation_status: str = "PASS"
     overall_quality_score: float = 0.0
+    layout_score: float = 0.0
+    content_accuracy_score: float = 0.0
+    generation_mode: str = "llm"  # "llm" | "deterministic_fallback"
     execution_time_seconds: float = 0.0
     notes: str = ""
 
